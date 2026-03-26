@@ -1,0 +1,18 @@
+# Build artifacts
+Binaries/
+Intermediate/
+DerivedDataCache/
+Saved/
+
+# Visual Studio
+.vs/
+*.sln
+*.VC.db
+*.VC.opendb
+
+# Rider / JetBrains
+.idea/
+
+# OS junk
+.DS_Store
+Thumbs.db
