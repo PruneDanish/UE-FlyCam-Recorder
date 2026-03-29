@@ -5,12 +5,14 @@
 #include "CoreMinimal.h"
 #include "Modules/ModuleManager.h"
 #include "Containers/Ticker.h"
+#include "Misc/Guid.h"
 
 class FToolBarBuilder;
 class FMenuBuilder;
 class SCameraRecorderWidget;
 class ULevelSequence;
 class ACineCameraActor;
+class ISequencer;
 
 class FCameraRecorderModule : public IModuleInterface
 {
@@ -37,6 +39,13 @@ public:
 	int32 GetEndFrame() const { return EndFrame; }
 	int32 GetCurrentFrame() const { return CurrentFrame; }
 
+	/** Warmup frames */
+	void SetWarmupFrames(int32 InWarmupFrames) { WarmupFrames = FMath::Max(0, InWarmupFrames); }
+	int32 GetWarmupFrames() const { return WarmupFrames; }
+
+	/** Get warmup state */
+	bool IsInWarmup() const { return bIsInWarmup; }
+
 private:
 
 	void RegisterMenus();
@@ -45,15 +54,23 @@ private:
 	bool HandleTicker(float DeltaTime);
 	void OnTick();
 	void StopRecording();
+	void StartSequencerPlayback();
+	TSharedPtr<ISequencer> GetActiveSequencer();
 
 	void RecordCameraKeyframe(ACineCameraActor* CineCam, int32 FrameNumber);
 	ULevelSequence* GetOrCreateLevelSequence();
+	FGuid GetOrCreateCameraBinding(ACineCameraActor* CineCam);
+	void ClearExistingKeyframes(const FGuid& CameraBinding);
 
 	bool bIsRecording = false;
+	bool bIsInWarmup = false;
 	int32 FrameStep = 1;
 	int32 StartFrame = 0;
 	int32 EndFrame = 120;
+	int32 WarmupFrames = 30;
 	int32 CurrentFrame = 0;
+	int32 LastRecordedFrame = -1;
+	int32 WarmupStartFrame = 0;  // NEW: Track where warmup began
 	
 	TSharedPtr<class FUICommandList> PluginCommands;
 	TWeakPtr<SCameraRecorderWidget> CameraRecorderWidget;
@@ -61,4 +78,6 @@ private:
 	
 	TWeakObjectPtr<ULevelSequence> CurrentLevelSequence;
 	TWeakObjectPtr<ACineCameraActor> RecordingCamera;
+	TWeakPtr<ISequencer> ActiveSequencer;
+	FGuid CachedCameraBinding;
 };

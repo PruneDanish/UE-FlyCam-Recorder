@@ -16,13 +16,14 @@ void SCameraRecorderWidget::Construct(const FArguments& InArgs)
 {
 	Module = InArgs._Module;
 
-	// Reset module state when opening the window
+	// Reset module state when opening the window - only set values, don't call SetRecording
 	if (Module)
 	{
 		Module->SetStartFrame(0);
 		Module->SetEndFrame(120);
 		Module->SetFrameStep(1);
-		Module->SetRecording(false);
+		Module->SetWarmupFrames(30);
+		// REMOVED: Module->SetRecording(false); - This line was causing the crash
 	}
 
 	bIsRecording = false;
@@ -40,6 +41,35 @@ void SCameraRecorderWidget::Construct(const FArguments& InArgs)
 				.Font(FCoreStyle::GetDefaultFontStyle("Bold", 14))
 		]
 
+		// Warmup Frames Input
+		+ SVerticalBox::Slot()
+		.AutoHeight()
+		.Padding(8.f)
+		[
+			SNew(SHorizontalBox)
+			
+			+ SHorizontalBox::Slot()
+			.AutoWidth()
+			.VAlign(VAlign_Center)
+			.Padding(0.f, 0.f, 8.f, 0.f)
+			[
+				SNew(STextBlock)
+					.Text(LOCTEXT("WarmupFramesLabel", "Warmup Frames:"))
+					.MinDesiredWidth(100.f)
+					.ToolTipText(LOCTEXT("WarmupFramesTooltip", "Number of frames to play before recording starts"))
+			]
+			
+			+ SHorizontalBox::Slot()
+			.FillWidth(1.0f)
+			[
+				SAssignNew(WarmupFramesSpinBox, SSpinBox<int32>)
+					.MinValue(0)
+					.MaxValue(1000)
+					.Value(30)
+					.OnValueChanged(this, &SCameraRecorderWidget::OnWarmupFramesChanged)
+			]
+		]
+
 		// Start Frame Input
 		+ SVerticalBox::Slot()
 		.AutoHeight()
@@ -54,7 +84,7 @@ void SCameraRecorderWidget::Construct(const FArguments& InArgs)
 			[
 				SNew(STextBlock)
 					.Text(LOCTEXT("StartFrameLabel", "Start Frame:"))
-					.MinDesiredWidth(80.f)
+					.MinDesiredWidth(100.f)
 			]
 			
 			+ SHorizontalBox::Slot()
@@ -82,7 +112,7 @@ void SCameraRecorderWidget::Construct(const FArguments& InArgs)
 			[
 				SNew(STextBlock)
 					.Text(LOCTEXT("EndFrameLabel", "End Frame:"))
-					.MinDesiredWidth(80.f)
+					.MinDesiredWidth(100.f)
 			]
 			
 			+ SHorizontalBox::Slot()
@@ -110,7 +140,7 @@ void SCameraRecorderWidget::Construct(const FArguments& InArgs)
 			[
 				SNew(STextBlock)
 					.Text(LOCTEXT("FrameStepLabel", "Frame Step:"))
-					.MinDesiredWidth(80.f)
+					.MinDesiredWidth(100.f)
 			]
 			
 			+ SHorizontalBox::Slot()
@@ -122,6 +152,27 @@ void SCameraRecorderWidget::Construct(const FArguments& InArgs)
 					.Value(1)
 					.OnValueChanged(this, &SCameraRecorderWidget::OnFrameStepChanged)
 			]
+		]
+
+		// Status Display
+		+ SVerticalBox::Slot()
+		.AutoHeight()
+		.Padding(8.f)
+		[
+			SNew(STextBlock)
+				.Text(this, &SCameraRecorderWidget::GetStatusText)
+				.Font(FCoreStyle::GetDefaultFontStyle("Bold", 10))
+				.ColorAndOpacity_Lambda([this]()
+					{
+						if (!Module) return FSlateColor(FLinearColor::White);
+						
+						if (Module->IsInWarmup())
+							return FSlateColor(FLinearColor::Yellow);
+						else if (Module->IsRecording())
+							return FSlateColor(FLinearColor::Red);
+						else
+							return FSlateColor(FLinearColor::White);
+					})
 		]
 
 		// Current Frame Display
@@ -138,7 +189,7 @@ void SCameraRecorderWidget::Construct(const FArguments& InArgs)
 			[
 				SNew(STextBlock)
 					.Text(LOCTEXT("CurrentFrameLabel", "Current Frame:"))
-					.MinDesiredWidth(80.f)
+					.MinDesiredWidth(100.f)
 			]
 			
 			+ SHorizontalBox::Slot()
@@ -202,6 +253,40 @@ FText SCameraRecorderWidget::GetCurrentFrameText() const
 	return FText::FromString(TEXT("0"));
 }
 
+FText SCameraRecorderWidget::GetStatusText() const
+{
+	if (!Module)
+	{
+		return LOCTEXT("StatusIdle", "Status: Idle");
+	}
+
+	if (Module->IsInWarmup())
+	{
+		return FText::Format(
+			LOCTEXT("StatusWarmup", "Status: Warming up... ({0}/{1})"),
+			FText::AsNumber(Module->GetCurrentFrame() - (Module->GetStartFrame() - Module->GetWarmupFrames())),
+			FText::AsNumber(Module->GetWarmupFrames())
+		);
+	}
+	else if (Module->IsRecording())
+	{
+		return LOCTEXT("StatusRecording", "Status: Recording");
+	}
+	else
+	{
+		return LOCTEXT("StatusIdle", "Status: Idle");
+	}
+}
+
+void SCameraRecorderWidget::OnWarmupFramesChanged(int32 NewValue)
+{
+	if (Module)
+	{
+		Module->SetWarmupFrames(NewValue);
+		UE_LOG(LogTemp, Log, TEXT("Warmup Frames changed to: %d"), NewValue);
+	}
+}
+
 void SCameraRecorderWidget::OnFrameStepChanged(int32 NewValue)
 {
 	if (Module)
@@ -249,6 +334,7 @@ FReply SCameraRecorderWidget::OnTestTickButtonClicked()
 	if (Module)
 	{
 		UE_LOG(LogTemp, Warning, TEXT("Module bIsRecording: %s"), Module->IsRecording() ? TEXT("TRUE") : TEXT("FALSE"));
+		UE_LOG(LogTemp, Warning, TEXT("Warmup Frames: %d"), Module->GetWarmupFrames());
 		UE_LOG(LogTemp, Warning, TEXT("Frame Step: %d"), Module->GetFrameStep());
 		UE_LOG(LogTemp, Warning, TEXT("Frame Range: %d - %d"), Module->GetStartFrame(), Module->GetEndFrame());
 	}

@@ -29,8 +29,10 @@ private:
 	void OnFrameStepChanged(int32 NewValue);
 	void OnStartFrameChanged(int32 NewValue);
 	void OnEndFrameChanged(int32 NewValue);
+	void OnWarmupFramesChanged(int32 NewValue);
 
 	FText GetCurrentFrameText() const;
+	FText GetStatusText() const;
 
 	bool bIsRecording = false;
 	FCameraRecorderModule* Module = nullptr;
@@ -38,4 +40,5 @@ private:
 	TSharedPtr<SSpinBox<int32>> FrameStepSpinBox;
 	TSharedPtr<SSpinBox<int32>> StartFrameSpinBox;
 	TSharedPtr<SSpinBox<int32>> EndFrameSpinBox;
+	TSharedPtr<SSpinBox<int32>> WarmupFramesSpinBox;
 };

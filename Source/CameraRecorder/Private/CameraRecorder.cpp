@@ -53,8 +53,19 @@ void FCameraRecorderModule::StartupModule()
 
 void FCameraRecorderModule::ShutdownModule()
 {
+	// Stop any active recording
+	if (bIsRecording)
+	{
+		bIsRecording = false;
+		bIsInWarmup = false;
+	}
+	
 	// Unregister tick delegate
-	FTSTicker::GetCoreTicker().RemoveTicker(TickDelegateHandle);
+	if (TickDelegateHandle.IsValid())
+	{
+		FTSTicker::GetCoreTicker().RemoveTicker(TickDelegateHandle);
+		TickDelegateHandle.Reset();
+	}
 
 	UToolMenus::UnRegisterStartupCallback(this);
 	UToolMenus::UnregisterOwner(this);
@@ -63,6 +74,12 @@ void FCameraRecorderModule::ShutdownModule()
 	FCameraRecorderCommands::Unregister();
 
 	FGlobalTabmanager::Get()->UnregisterNomadTabSpawner(CameraRecorderTabName);
+	
+	// Clear all weak pointers
+	CameraRecorderWidget.Reset();
+	CurrentLevelSequence.Reset();
+	RecordingCamera.Reset();
+	ActiveSequencer.Reset();
 }
 
 TSharedRef<SDockTab> FCameraRecorderModule::OnSpawnPluginTab(const FSpawnTabArgs& SpawnTabArgs)
@@ -84,36 +101,376 @@ void FCameraRecorderModule::PluginButtonClicked()
 	FGlobalTabmanager::Get()->TryInvokeTab(CameraRecorderTabName);
 }
 
+TSharedPtr<ISequencer> FCameraRecorderModule::GetActiveSequencer()
+{
+	if (!GEditor)
+	{
+		return nullptr;
+	}
+
+	UAssetEditorSubsystem* AssetEditorSubsystem = GEditor->GetEditorSubsystem<UAssetEditorSubsystem>();
+	if (!AssetEditorSubsystem)
+	{
+		return nullptr;
+	}
+
+	TArray<UObject*> EditedAssets = AssetEditorSubsystem->GetAllEditedAssets();
+	
+	for (UObject* Asset : EditedAssets)
+	{
+		if (ULevelSequence* LevelSeq = Cast<ULevelSequence>(Asset))
+		{
+			IAssetEditorInstance* AssetEditor = AssetEditorSubsystem->FindEditorForAsset(LevelSeq, false);
+			if (ILevelSequenceEditorToolkit* LevelSequenceEditor = static_cast<ILevelSequenceEditorToolkit*>(AssetEditor))
+			{
+				return LevelSequenceEditor->GetSequencer();
+			}
+		}
+	}
+	
+	return nullptr;
+}
+
+void FCameraRecorderModule::StartSequencerPlayback()
+{
+	TSharedPtr<ISequencer> Sequencer = GetActiveSequencer();
+	if (!Sequencer.IsValid())
+	{
+		UE_LOG(LogTemp, Error, TEXT("Failed to get Sequencer for playback!"));
+		return;
+	}
+
+	ActiveSequencer = Sequencer;
+
+	// Calculate the warmup start frame - ALLOW negative frames!
+	WarmupStartFrame = StartFrame - WarmupFrames;
+
+	// Get the movie scene to check/extend playback range
+	if (CurrentLevelSequence.IsValid())
+	{
+		UMovieScene* MovieScene = CurrentLevelSequence->GetMovieScene();
+		if (MovieScene)
+		{
+			// IMPORTANT: EndFrame represents theLAST FRAME to play, but Sequencer's range is exclusive
+			// So we need to set the range end to EndFrame + 1
+			int32 TotalEndFrame = EndFrame + 1;  // +1 because Sequencer range is exclusive
+			
+			// Get the display rate
+			FFrameRate DisplayRate = MovieScene->GetDisplayRate();
+			FFrameRate TickResolution = MovieScene->GetTickResolution();
+			
+			// Get the CURRENT playback range
+			TRange<FFrameNumber> CurrentRange = MovieScene->GetPlaybackRange();
+			
+			// Convert our needed start/end to tick resolution
+			FFrameNumber NeededStartInTicks = FFrameRate::TransformTime(
+				FFrameTime(StartFrame),  // Start at StartFrame, NOT WarmupStartFrame
+				DisplayRate, 
+				TickResolution
+			).FloorToFrame();
+			
+			FFrameNumber NeededEndInTicks = FFrameRate::TransformTime(
+				FFrameTime(TotalEndFrame),  // Now using EndFrame + 1
+				DisplayRate, 
+				TickResolution
+			).CeilToFrame();
+			
+			// Only extend the range if necessary, don't shrink it
+			FFrameNumber FinalStartFrame = CurrentRange.GetLowerBoundValue();
+			FFrameNumber FinalEndFrame = CurrentRange.GetUpperBoundValue();
+			
+			bool bRangeChanged = false;
+			
+			// Extend start if needed (make it earlier)
+			if (NeededStartInTicks < FinalStartFrame)
+			{
+				FinalStartFrame = NeededStartInTicks;
+				bRangeChanged = true;
+			}
+			
+			// Extend end if needed (make it later)
+			if (NeededEndInTicks > FinalEndFrame)
+			{
+				FinalEndFrame = NeededEndInTicks;
+				bRangeChanged = true;
+			}
+			
+			// Only update the range if we actually need to extend it
+			if (bRangeChanged)
+			{
+				TRange<FFrameNumber> NewRange = TRange<FFrameNumber>(FinalStartFrame, FinalEndFrame);
+				MovieScene->SetPlaybackRange(NewRange);
+				
+				UE_LOG(LogTemp, Warning, TEXT("Extended Sequencer playback range to [%d, %d] in tick resolution (display frames %d to %d)"),
+					FinalStartFrame.Value, FinalEndFrame.Value, StartFrame, EndFrame);
+			}
+			else
+			{
+				UE_LOG(LogTemp, Log, TEXT("Current playback range [%d, %d] already contains recording range"),
+					CurrentRange.GetLowerBoundValue().Value, CurrentRange.GetUpperBoundValue().Value);
+			}
+			
+			// Set the view range to see the entire recording
+			double ViewStart = FFrameRate::TransformTime(FFrameTime(WarmupStartFrame), DisplayRate, TickResolution).AsDecimal() / TickResolution.AsDecimal();
+			double ViewEnd = FFrameRate::TransformTime(FFrameTime(EndFrame), DisplayRate, TickResolution).AsDecimal() / TickResolution.AsDecimal();
+			
+			Sequencer->SetViewRange(TRange<double>(ViewStart, ViewEnd), EViewRangeInterpolation::Immediate);
+			
+			// CRITICAL: Set global time in TICK RESOLUTION, not display frames
+			// Convert WarmupStartFrame (display frame) to tick resolution
+			FFrameNumber WarmupFrameInTicks = FFrameRate::TransformTime(
+				FFrameTime(WarmupStartFrame),
+				DisplayRate,
+				TickResolution
+			).FloorToFrame();
+			
+			UE_LOG(LogTemp, Warning, TEXT("Setting playhead to display frame %d (tick frame %d)"), 
+				WarmupStartFrame, WarmupFrameInTicks.Value);
+			
+			// Set using FFrameTime with tick resolution
+			Sequencer->SetGlobalTime(FFrameTime(WarmupFrameInTicks));
+			
+			// Force evaluation to lock in the time
+			Sequencer->ForceEvaluate();
+			
+			// Now start playback
+			Sequencer->SetPlaybackStatus(EMovieScenePlayerStatus::Playing);
+			
+			UE_LOG(LogTemp, Warning, TEXT("===== Started Sequencer playback from frame %d (warmup: %d frames) ====="), 
+				WarmupStartFrame, WarmupFrames);
+		}
+	}
+}
+
+void FCameraRecorderModule::ClearExistingKeyframes(const FGuid& CameraBinding)
+{
+	if (!CurrentLevelSequence.IsValid() || !CameraBinding.IsValid())
+	{
+		return;
+	}
+
+	UMovieScene* MovieScene = CurrentLevelSequence->GetMovieScene();
+	if (!MovieScene)
+	{
+		return;
+	}
+
+	// Find the transform track for this camera
+	UMovieScene3DTransformTrack* TransformTrack = MovieScene->FindTrack<UMovieScene3DTransformTrack>(CameraBinding);
+	if (!TransformTrack)
+	{
+		UE_LOG(LogTemp, Log, TEXT("No transform track found for camera, nothing to clear"));
+		return;
+	}
+
+	// Get the transform section
+	UMovieScene3DTransformSection* TransformSection = Cast<UMovieScene3DTransformSection>(
+		TransformTrack->FindSection(0));
+	
+	if (!TransformSection)
+	{
+		UE_LOG(LogTemp, Log, TEXT("No transform section found, nothing to clear"));
+		return;
+	}
+
+	// Convert frame range to tick resolution
+	FFrameRate DisplayRate = MovieScene->GetDisplayRate();
+	FFrameRate TickResolution = MovieScene->GetTickResolution();
+	
+	FFrameNumber StartFrameInTicks = FFrameRate::TransformTime(
+		FFrameTime(StartFrame), 
+		DisplayRate, 
+		TickResolution
+	).FloorToFrame();
+	
+	FFrameNumber EndFrameInTicks = FFrameRate::TransformTime(
+		FFrameTime(EndFrame), 
+		DisplayRate, 
+		TickResolution
+	).CeilToFrame();
+
+	// Get all the channels
+	TArrayView<FMovieSceneDoubleChannel*> Channels = TransformSection->GetChannelProxy().GetChannels<FMovieSceneDoubleChannel>();
+	
+	if (Channels.Num() < 6)
+	{
+		UE_LOG(LogTemp, Warning, TEXT("Transform section doesn't have enough channels"));
+		return;
+	}
+
+	int32 TotalKeysRemoved = 0;
+
+	// Clear keyframes in the recording range for all channels
+	for (FMovieSceneDoubleChannel* Channel : Channels)
+	{
+		if (Channel)
+		{
+			TArray<FKeyHandle> KeyHandlesToRemove;
+			
+			// Get all keys in the channel
+			TArrayView<const FFrameNumber> KeyTimes = Channel->GetTimes();
+			TArrayView<const FMovieSceneDoubleValue> KeyValues = Channel->GetValues();
+			
+			// Find all key handles within the recording range
+			for (int32 KeyIndex = 0; KeyIndex < KeyTimes.Num(); ++KeyIndex)
+			{
+				const FFrameNumber& KeyTime = KeyTimes[KeyIndex];
+				if (KeyTime >= StartFrameInTicks && KeyTime <= EndFrameInTicks)
+				{
+					// Get the key handle at this index
+					FKeyHandle KeyHandle = Channel->GetHandle(KeyIndex);
+					if (KeyHandle != FKeyHandle::Invalid())
+					{
+						KeyHandlesToRemove.Add(KeyHandle);
+					}
+				}
+			}
+			
+			// Remove the keys using their handles
+			if (KeyHandlesToRemove.Num() > 0)
+			{
+				Channel->DeleteKeys(KeyHandlesToRemove);
+				TotalKeysRemoved += KeyHandlesToRemove.Num();
+			}
+		}
+	}
+
+	if (TotalKeysRemoved > 0)
+	{
+		UE_LOG(LogTemp, Warning, TEXT("Cleared %d existing keyframes in range [%d - %d]"), 
+			TotalKeysRemoved, StartFrame, EndFrame);
+		
+		// Notify sequencer that data has changed
+		if (TSharedPtr<ISequencer> Sequencer = ActiveSequencer.Pin())
+		{
+			Sequencer->NotifyMovieSceneDataChanged(EMovieSceneDataChangeType::TrackValueChanged);
+		}
+	}
+	else
+	{
+		UE_LOG(LogTemp, Log, TEXT("No existing keyframes found in range [%d - %d]"), 
+			StartFrame, EndFrame);
+	}
+}
+
 void FCameraRecorderModule::SetRecording(bool bInIsRecording)
 {
 	bIsRecording = bInIsRecording;
 	
 	if (bInIsRecording)
 	{
-		CurrentFrame = StartFrame;
+		// Reset tracking variables
+		bIsInWarmup = WarmupFrames > 0;
+		LastRecordedFrame = -1;
+		CachedCameraBinding.Invalidate(); // Reset the cached binding
+		
+		// Calculate and store the warmup start frame - ALLOW negative frames!
+		WarmupStartFrame = StartFrame - WarmupFrames;
+		
 		CurrentLevelSequence = GetOrCreateLevelSequence();
 		
 		if (!CurrentLevelSequence.IsValid())
 		{
 			UE_LOG(LogTemp, Error, TEXT("Failed to get or create Level Sequence!"));
 			bIsRecording = false;
+			bIsInWarmup = false;
 			return;
 		}
 		
-		UE_LOG(LogTemp, Warning, TEXT("===== Recording started from frame %d to %d ====="), StartFrame, EndFrame);
+		// Get or create camera binding first (needed for clearing keyframes)
+		if (!GEditor)
+		{
+			UE_LOG(LogTemp, Error, TEXT("GEditor is null!"));
+			bIsRecording = false;
+			bIsInWarmup = false;
+			return;
+		}
+
+		ULevelEditorSubsystem* LevelEditorSubsystem = GEditor->GetEditorSubsystem<ULevelEditorSubsystem>();
+		if (!LevelEditorSubsystem)
+		{
+			UE_LOG(LogTemp, Error, TEXT("LevelEditorSubsystem is null!"));
+			bIsRecording = false;
+			bIsInWarmup = false;
+			return;
+		}
+
+		AActor* PilotActor = LevelEditorSubsystem->GetPilotLevelActor();
+		if (!PilotActor)
+		{
+			UE_LOG(LogTemp, Error, TEXT("No piloted actor found! Please pilot a camera before recording."));
+			bIsRecording = false;
+			bIsInWarmup = false;
+			return;
+		}
+
+		ACineCameraActor* CineCam = Cast<ACineCameraActor>(PilotActor);
+		if (!CineCam)
+		{
+			UE_LOG(LogTemp, Error, TEXT("Piloted actor is not a CineCameraActor!"));
+			bIsRecording = false;
+			bIsInWarmup = false;
+			return;
+		}
+
+		// Get or create the camera binding
+		FGuid CameraBinding = GetOrCreateCameraBinding(CineCam);
+		if (!CameraBinding.IsValid())
+		{
+			UE_LOG(LogTemp, Error, TEXT("Failed to get camera binding!"));
+			bIsRecording = false;
+			bIsInWarmup = false;
+			return;
+		}
+
+		// Clear existing keyframes in the recording range
+		ClearExistingKeyframes(CameraBinding);
+		
+		// IMPORTANT: DON'T record initial keyframe yet if we have warmup
+		// Only record it if there's no warmup, otherwise record it when warmup completes
+		if (WarmupFrames == 0)
+		{
+			RecordCameraKeyframe(CineCam, StartFrame);  // Records at frame 0
+			StartSequencerPlayback();  // Starts at frame -30
+			UE_LOG(LogTemp, Log, TEXT("Recorded initial camera position at frame %d (no warmup)"), StartFrame);
+		}
+		else
+		{
+			UE_LOG(LogTemp, Log, TEXT("Skipping initial keyframe - will record after %d warmup frames"), WarmupFrames);
+		}
+		
+		// Start sequencer playback
+		StartSequencerPlayback();
+		
+		if (WarmupFrames > 0)
+		{
+			UE_LOG(LogTemp, Warning, TEXT("===== Recording started with %d warmup frames (playing from frame %d) ====="), 
+				WarmupFrames, WarmupStartFrame);
+		}
+		else
+		{
+			UE_LOG(LogTemp, Warning, TEXT("===== Recording started with no warmup ====="));
+		}
+		UE_LOG(LogTemp, Warning, TEXT("===== Will record from frame %d to %d (step: %d) ====="), StartFrame, EndFrame, FrameStep);
 		UE_LOG(LogTemp, Warning, TEXT("===== Recording to sequence: %s ====="), *CurrentLevelSequence->GetName());
 	}
 	else
 	{
-		UE_LOG(LogTemp, Warning, TEXT("===== Recording stopped at frame %d ====="), CurrentFrame);
-		CurrentLevelSequence.Reset();
-		RecordingCamera.Reset();
+		StopRecording();
 	}
 }
 
 void FCameraRecorderModule::StopRecording()
 {
 	bIsRecording = false;
+	bIsInWarmup = false;
+	
+	// Stop sequencer playback
+	if (TSharedPtr<ISequencer> Sequencer = ActiveSequencer.Pin())
+	{
+		Sequencer->SetPlaybackStatus(EMovieScenePlayerStatus::Stopped);
+		UE_LOG(LogTemp, Warning, TEXT("===== Stopped Sequencer playback ====="));
+	}
 	
 	// Notify widget to update button state
 	if (TSharedPtr<SCameraRecorderWidget> Widget = CameraRecorderWidget.Pin())
@@ -125,33 +482,100 @@ void FCameraRecorderModule::StopRecording()
 	
 	CurrentLevelSequence.Reset();
 	RecordingCamera.Reset();
+	ActiveSequencer.Reset();
+	LastRecordedFrame = -1;
+	CachedCameraBinding.Invalidate(); // Clear the cached binding
 }
 
-ULevelSequence* FCameraRecorderModule::GetOrCreateLevelSequence()
+FGuid FCameraRecorderModule::GetOrCreateCameraBinding(ACineCameraActor* CineCam)
 {
-	// Try to get the asset editor subsystem and find an open sequence editor
-	if (GEditor)
+	if (!CurrentLevelSequence.IsValid() || !CineCam)
 	{
-		UAssetEditorSubsystem* AssetEditorSubsystem = GEditor->GetEditorSubsystem<UAssetEditorSubsystem>();
-		if (AssetEditorSubsystem)
+		return FGuid();
+	}
+
+	// Return cached binding if valid
+	if (CachedCameraBinding.IsValid())
+	{
+		return CachedCameraBinding;
+	}
+
+	UMovieScene* MovieScene = CurrentLevelSequence->GetMovieScene();
+	if (!MovieScene)
+	{
+		return FGuid();
+	}
+
+	// First, search for existing possessables by comparing bound objects
+	for (int32 i = 0; i < MovieScene->GetPossessableCount(); ++i)
+	{
+		const FMovieScenePossessable& Possessable = MovieScene->GetPossessable(i);
+		TArray<UObject*, TInlineAllocator<1>> BoundObjects;
+		
+		CurrentLevelSequence->LocateBoundObjects(Possessable.GetGuid(), CineCam->GetWorld(), BoundObjects);
+		
+		for (UObject* BoundObject : BoundObjects)
 		{
-			TArray<UObject*> EditedAssets = AssetEditorSubsystem->GetAllEditedAssets();
-			
-			for (UObject* Asset : EditedAssets)
+			if (BoundObject == CineCam)
 			{
-				if (ULevelSequence* LevelSeq = Cast<ULevelSequence>(Asset))
-				{
-					UE_LOG(LogTemp, Log, TEXT("Using currently open Level Sequence: %s"), *LevelSeq->GetName());
-					return LevelSeq;
-				}
+				CachedCameraBinding = Possessable.GetGuid();
+				UE_LOG(LogTemp, Log, TEXT("Found existing camera binding for %s (GUID: %s)"), 
+					*CineCam->GetActorLabel(), *CachedCameraBinding.ToString());
+				return CachedCameraBinding;
 			}
 		}
 	}
 	
-	UE_LOG(LogTemp, Warning, TEXT("No Level Sequence is currently open in Sequencer!"));
-	UE_LOG(LogTemp, Warning, TEXT("Please open a Level Sequence in Sequencer before recording."));
+	// Second, check if the camera is already bound as a spawnable (less common but possible)
+	for (int32 i = 0; i < MovieScene->GetSpawnableCount(); ++i)
+	{
+		const FMovieSceneSpawnable& Spawnable = MovieScene->GetSpawnable(i);
+		TArray<UObject*, TInlineAllocator<1>> BoundObjects;
+		
+		CurrentLevelSequence->LocateBoundObjects(Spawnable.GetGuid(), CineCam->GetWorld(), BoundObjects);
+		
+		for (UObject* BoundObject : BoundObjects)
+		{
+			if (BoundObject == CineCam)
+			{
+				CachedCameraBinding = Spawnable.GetGuid();
+				UE_LOG(LogTemp, Log, TEXT("Found existing camera spawnable for %s (GUID: %s)"), 
+					*CineCam->GetActorLabel(), *CachedCameraBinding.ToString());
+				return CachedCameraBinding;
+			}
+		}
+	}
 	
-	return nullptr;
+	// Third, try to find by name match (fallback for edge cases)
+	FString CameraName = CineCam->GetActorLabel();
+	for (int32 i = 0; i < MovieScene->GetPossessableCount(); ++i)
+	{
+		const FMovieScenePossessable& Possessable = MovieScene->GetPossessable(i);
+		
+		// Check if the name matches
+		if (Possessable.GetName() == CameraName)
+		{
+			// Verify this is actually a camera actor class
+			if (Possessable.GetPossessedObjectClass()->IsChildOf(ACineCameraActor::StaticClass()))
+			{
+				// Try to rebind it to our camera
+				CurrentLevelSequence->BindPossessableObject(Possessable.GetGuid(), *CineCam, CineCam->GetWorld());
+				
+				CachedCameraBinding = Possessable.GetGuid();
+				UE_LOG(LogTemp, Log, TEXT("Found existing camera binding by name match and rebound: %s (GUID: %s)"), 
+					*CameraName, *CachedCameraBinding.ToString());
+				return CachedCameraBinding;
+			}
+		}
+	}
+	
+	// Camera not in sequence yet, add it as a new possessable
+	CachedCameraBinding = MovieScene->AddPossessable(CineCam->GetActorLabel(), CineCam->GetClass());
+	CurrentLevelSequence->BindPossessableObject(CachedCameraBinding, *CineCam, CineCam->GetWorld());
+	UE_LOG(LogTemp, Warning, TEXT("Created NEW camera binding for %s (GUID: %s)"), 
+		*CineCam->GetActorLabel(), *CachedCameraBinding.ToString());
+	
+	return CachedCameraBinding;
 }
 
 void FCameraRecorderModule::RecordCameraKeyframe(ACineCameraActor* CineCam, int32 FrameNumber)
@@ -167,36 +591,12 @@ void FCameraRecorderModule::RecordCameraKeyframe(ACineCameraActor* CineCam, int3
 		return;
 	}
 
-	// Find existing binding or create new one
-	FGuid CameraBinding;
-	
-	// Search for existing possessable
-	for (int32 i = 0; i < MovieScene->GetPossessableCount(); ++i)
-	{
-		const FMovieScenePossessable& Possessable = MovieScene->GetPossessable(i);
-		auto BoundObjects = CurrentLevelSequence->LocateBoundObjects(Possessable.GetGuid(), CineCam->GetWorld());
-		
-		for (UObject* BoundObject : BoundObjects)
-		{
-			if (BoundObject == CineCam)
-			{
-				CameraBinding = Possessable.GetGuid();
-				break;
-			}
-		}
-		
-		if (CameraBinding.IsValid())
-		{
-			break;
-		}
-	}
-	
+	// Get or create the camera binding (cached after first call)
+	FGuid CameraBinding = GetOrCreateCameraBinding(CineCam);
 	if (!CameraBinding.IsValid())
 	{
-		// Camera not in sequence yet, add it
-		CameraBinding = MovieScene->AddPossessable(CineCam->GetActorLabel(), CineCam->GetClass());
-		CurrentLevelSequence->BindPossessableObject(CameraBinding, *CineCam, CineCam->GetWorld());
-		UE_LOG(LogTemp, Log, TEXT("Added camera %s to sequence"), *CineCam->GetActorLabel());
+		UE_LOG(LogTemp, Error, TEXT("Failed to get camera binding!"));
+		return;
 	}
 
 	// Get or create transform track
@@ -287,18 +687,94 @@ void FCameraRecorderModule::OnTick()
 		return;
 	}
 
-	CurrentFrame++;
+	// Get the current Sequencer frame
+	TSharedPtr<ISequencer> Sequencer = ActiveSequencer.Pin();
+	if (!Sequencer.IsValid())
+	{
+		UE_LOG(LogTemp, Warning, TEXT("Sequencer is no longer valid, stopping recording"));
+		StopRecording();
+		return;
+	}
 
-	// Check if we've reached the end frame
-	if (EndFrame > 0 && CurrentFrame > EndFrame)
+	// Check if sequencer stopped playing (but don't stop recording immediately - keep it playing)
+	if (Sequencer->GetPlaybackStatus() != EMovieScenePlayerStatus::Playing)
+	{
+		// Try to restart playback instead of stopping
+		UE_LOG(LogTemp, Warning, TEXT("Sequencer paused/stopped, attempting to restart playback"));
+		Sequencer->SetPlaybackStatus(EMovieScenePlayerStatus::Playing);
+		
+		// If it still won't play, then stop recording
+		if (Sequencer->GetPlaybackStatus() != EMovieScenePlayerStatus::Playing)
+		{
+			UE_LOG(LogTemp, Error, TEXT("Failed to restart Sequencer playback, stopping recording"));
+			StopRecording();
+			return;
+		}
+	}
+
+	// Get current frame from Sequencer - convert from tick resolution to display rate
+	FFrameRate DisplayRate = Sequencer->GetFocusedDisplayRate();
+	FFrameTime SequencerTime = Sequencer->GetGlobalTime().Time;
+	
+	// Get the movie scene to access tick resolution
+	if (!CurrentLevelSequence.IsValid())
+	{
+		return;
+	}
+	
+	UMovieScene* MovieScene = CurrentLevelSequence->GetMovieScene();
+	if (!MovieScene)
+	{
+		return;
+	}
+	
+	FFrameRate TickResolution = MovieScene->GetTickResolution();
+	
+	// Convert from tick resolution to display rate frames
+	FFrameTime DisplayTime = FFrameRate::TransformTime(SequencerTime, TickResolution, DisplayRate);
+	CurrentFrame = DisplayTime.FloorToFrame().Value;
+
+	// DEBUG: Log every frame during warmup
+	if (bIsInWarmup)
+	{
+		UE_LOG(LogTemp, Warning, TEXT("WARMUP TICK - CurrentFrame: %d, StartFrame: %d, WarmupStartFrame: %d, bIsInWarmup: %s"),
+			CurrentFrame, StartFrame, WarmupStartFrame, bIsInWarmup ? TEXT("TRUE") : TEXT("FALSE"));
+	}
+
+	// Handle warmup period - check if we've reached the actual start frame
+	if (bIsInWarmup)
+	{
+		if (CurrentFrame >= StartFrame)
+		{
+			bIsInWarmup = false;
+			UE_LOG(LogTemp, Warning, TEXT("===== Warmup complete at frame %d, starting recording ====="), CurrentFrame);
+		}
+		else
+		{
+			// Still in warmup - log to show progress
+			UE_LOG(LogTemp, Log, TEXT("Warmup in progress: frame %d (need to reach %d)"), 
+				CurrentFrame, StartFrame);
+			// Don't record yet
+			return;
+		}
+	}
+
+	// Check if we've reached or passed the end frame
+	if (EndFrame > 0 && CurrentFrame >= EndFrame)
 	{
 		UE_LOG(LogTemp, Warning, TEXT("===== Reached end frame %d, stopping recording ====="), EndFrame);
 		StopRecording();
 		return;
 	}
 
-	// Only record on frame step intervals
+	// Check if this frame should be recorded based on frame step
 	if ((CurrentFrame - StartFrame) % FrameStep != 0)
+	{
+		return;
+	}
+
+	// Prevent recording the same frame multiple times
+	if (CurrentFrame == LastRecordedFrame)
 	{
 		return;
 	}
@@ -338,6 +814,7 @@ void FCameraRecorderModule::OnTick()
 
 	// Record keyframe to sequencer
 	RecordCameraKeyframe(CineCam, CurrentFrame);
+	LastRecordedFrame = CurrentFrame;
 
 	const int32 KeyframeNumber = (CurrentFrame - StartFrame) / FrameStep;
 
