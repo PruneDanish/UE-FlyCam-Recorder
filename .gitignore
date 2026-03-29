@@ -3,6 +3,12 @@
 ##
 ## Get latest from https://github.com/github/gitignore/blob/master/VisualStudio.gitignore
 
+# Unreal Engine
+Binaries/
+Intermediate/
+DerivedDataCache/
+Saved/
+
 # User-specific files
 *.rsuser
 *.suo
