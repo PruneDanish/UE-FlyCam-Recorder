@@ -636,17 +636,79 @@ void FCameraRecorderModule::RecordCameraKeyframe(ACineCameraActor* CineCam, int3
 	FFrameRate FrameRate = MovieScene->GetTickResolution();
 	FFrameNumber FrameNum = FFrameRate::TransformTime(FFrameTime(FrameNumber), MovieScene->GetDisplayRate(), FrameRate).FloorToFrame();
 
-	// Add keyframes
+	// Get all channels
 	TArrayView<FMovieSceneDoubleChannel*> Channels = TransformSection->GetChannelProxy().GetChannels<FMovieSceneDoubleChannel>();
 	
 	if (Channels.Num() >= 6)
 	{
-		Channels[0]->AddLinearKey(FrameNum, Location.X); // Location X
-		Channels[1]->AddLinearKey(FrameNum, Location.Y); // Location Y
-		Channels[2]->AddLinearKey(FrameNum, Location.Z); // Location Z
-		Channels[3]->AddLinearKey(FrameNum, Rotation.Roll);  // Rotation X
-		Channels[4]->AddLinearKey(FrameNum, Rotation.Pitch); // Rotation Y
-		Channels[5]->AddLinearKey(FrameNum, Rotation.Yaw);   // Rotation Z
+		// Determine how to add keys based on interpolation mode
+		switch (InterpMode)
+		{
+			case ECameraRecorderInterpMode::Linear:
+				// Use AddLinearKey for linear interpolation
+				Channels[0]->AddLinearKey(FrameNum, Location.X);
+				Channels[1]->AddLinearKey(FrameNum, Location.Y);
+				Channels[2]->AddLinearKey(FrameNum, Location.Z);
+				Channels[3]->AddLinearKey(FrameNum, Rotation.Roll);
+				Channels[4]->AddLinearKey(FrameNum, Rotation.Pitch);
+				Channels[5]->AddLinearKey(FrameNum, Rotation.Yaw);
+				break;
+				
+			case ECameraRecorderInterpMode::Constant:
+				// Use AddConstantKey for constant interpolation
+				Channels[0]->AddConstantKey(FrameNum, Location.X);
+				Channels[1]->AddConstantKey(FrameNum, Location.Y);
+				Channels[2]->AddConstantKey(FrameNum, Location.Z);
+				Channels[3]->AddConstantKey(FrameNum, Rotation.Roll);
+				Channels[4]->AddConstantKey(FrameNum, Rotation.Pitch);
+				Channels[5]->AddConstantKey(FrameNum, Rotation.Yaw);
+				break;
+				
+			case ECameraRecorderInterpMode::Auto:
+			case ECameraRecorderInterpMode::User:
+			case ECameraRecorderInterpMode::Break:
+			default:
+				// Use AddCubicKey for cubic interpolation (Auto, User, Break)
+				// AddCubicKey returns the index, we need to get the handle and modify tangent mode
+				{
+					// Add the keys and get their indices
+					int32 KeyIndices[6];
+					KeyIndices[0] = Channels[0]->AddCubicKey(FrameNum, Location.X);
+					KeyIndices[1] = Channels[1]->AddCubicKey(FrameNum, Location.Y);
+					KeyIndices[2] = Channels[2]->AddCubicKey(FrameNum, Location.Z);
+					KeyIndices[3] = Channels[3]->AddCubicKey(FrameNum, Rotation.Roll);
+					KeyIndices[4] = Channels[4]->AddCubicKey(FrameNum, Rotation.Pitch);
+					KeyIndices[5] = Channels[5]->AddCubicKey(FrameNum, Rotation.Yaw);
+					
+					// Set the tangent mode for cubic keys
+					ERichCurveTangentMode TangentMode = RCTM_Auto;
+					
+					if (InterpMode == ECameraRecorderInterpMode::User)
+					{
+						TangentMode = RCTM_User;
+					}
+					else if (InterpMode == ECameraRecorderInterpMode::Break)
+					{
+						TangentMode = RCTM_Break;
+					}
+					
+					// Apply tangent mode to all channels
+					for (int32 i = 0; i < 6; ++i)
+					{
+						if (KeyIndices[i] != INDEX_NONE)
+						{
+							TMovieSceneChannelData<FMovieSceneDoubleValue> ChannelData = Channels[i]->GetData();
+							TArrayView<FMovieSceneDoubleValue> Values = ChannelData.GetValues();
+							
+							if (KeyIndices[i] < Values.Num())
+							{
+								Values[KeyIndices[i]].TangentMode = TangentMode;
+							}
+						}
+					}
+				}
+				break;
+		}
 	}
 }
 

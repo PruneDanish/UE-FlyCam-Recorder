@@ -16,17 +16,24 @@ void SCameraRecorderWidget::Construct(const FArguments& InArgs)
 {
 	Module = InArgs._Module;
 
-	// Reset module state when opening the window - only set values, don't call SetRecording
+	// Reset module state when opening the window
 	if (Module)
 	{
 		Module->SetStartFrame(0);
 		Module->SetEndFrame(120);
 		Module->SetFrameStep(1);
 		Module->SetWarmupFrames(30);
-		// REMOVED: Module->SetRecording(false); - This line was causing the crash
+		Module->SetInterpMode(ECameraRecorderInterpMode::Auto);
 	}
 
 	bIsRecording = false;
+
+	// Populate interpolation mode options
+	InterpModeOptions.Add(MakeShareable(new ECameraRecorderInterpMode(ECameraRecorderInterpMode::Auto)));
+	InterpModeOptions.Add(MakeShareable(new ECameraRecorderInterpMode(ECameraRecorderInterpMode::User)));
+	InterpModeOptions.Add(MakeShareable(new ECameraRecorderInterpMode(ECameraRecorderInterpMode::Break)));
+	InterpModeOptions.Add(MakeShareable(new ECameraRecorderInterpMode(ECameraRecorderInterpMode::Linear)));
+	InterpModeOptions.Add(MakeShareable(new ECameraRecorderInterpMode(ECameraRecorderInterpMode::Constant)));
 
 	ChildSlot
 	[
@@ -39,6 +46,39 @@ void SCameraRecorderWidget::Construct(const FArguments& InArgs)
 			SNew(STextBlock)
 				.Text(LOCTEXT("Title", "Camera Recorder"))
 				.Font(FCoreStyle::GetDefaultFontStyle("Bold", 14))
+		]
+
+		// Interpolation Mode Dropdown
+		+ SVerticalBox::Slot()
+		.AutoHeight()
+		.Padding(8.f)
+		[
+			SNew(SHorizontalBox)
+			
+			+ SHorizontalBox::Slot()
+			.AutoWidth()
+			.VAlign(VAlign_Center)
+			.Padding(0.f, 0.f, 8.f, 0.f)
+			[
+				SNew(STextBlock)
+					.Text(LOCTEXT("InterpModeLabel", "Interpolation:"))
+					.MinDesiredWidth(100.f)
+					.ToolTipText(LOCTEXT("InterpModeTooltip", "Animation curve interpolation mode for keyframes"))
+			]
+			
+			+ SHorizontalBox::Slot()
+			.FillWidth(1.0f)
+			[
+				SAssignNew(InterpModeComboBox, SComboBox<TSharedPtr<ECameraRecorderInterpMode>>)
+					.OptionsSource(&InterpModeOptions)
+					.OnGenerateWidget(this, &SCameraRecorderWidget::OnGenerateInterpWidget)
+					.OnSelectionChanged(this, &SCameraRecorderWidget::OnInterpSelectionChanged)
+					.InitiallySelectedItem(InterpModeOptions[0]) // Auto is first
+					[
+						SNew(STextBlock)
+							.Text(this, &SCameraRecorderWidget::GetCurrentInterpModeText)
+					]
+			]
 		]
 
 		// Warmup Frames Input
@@ -385,6 +425,68 @@ FReply SCameraRecorderWidget::OnDetectCameraButtonClicked()
 		Rotation.Pitch, Rotation.Yaw, Rotation.Roll);
 
 	return FReply::Handled();
+}
+
+TSharedRef<SWidget> SCameraRecorderWidget::OnGenerateInterpWidget(TSharedPtr<ECameraRecorderInterpMode> InItem)
+{
+	FText ItemText;
+	
+	if (InItem.IsValid())
+	{
+		switch (*InItem)
+		{
+			case ECameraRecorderInterpMode::Auto:
+				ItemText = LOCTEXT("InterpAuto", "Auto (Smart)");
+				break;
+			case ECameraRecorderInterpMode::User:
+				ItemText = LOCTEXT("InterpUser", "User");
+				break;
+			case ECameraRecorderInterpMode::Break:
+				ItemText = LOCTEXT("InterpBreak", "Break");
+				break;
+			case ECameraRecorderInterpMode::Linear:
+				ItemText = LOCTEXT("InterpLinear", "Linear");
+				break;
+			case ECameraRecorderInterpMode::Constant:
+				ItemText = LOCTEXT("InterpConstant", "Constant");
+				break;
+		}
+	}
+	
+	return SNew(STextBlock).Text(ItemText);
+}
+
+void SCameraRecorderWidget::OnInterpSelectionChanged(TSharedPtr<ECameraRecorderInterpMode> NewSelection, ESelectInfo::Type SelectInfo)
+{
+	if (Module && NewSelection.IsValid())
+	{
+		Module->SetInterpMode(*NewSelection);
+		UE_LOG(LogTemp, Log, TEXT("Interpolation mode changed to: %d"), (int32)*NewSelection);
+	}
+}
+
+FText SCameraRecorderWidget::GetCurrentInterpModeText() const
+{
+	if (!Module)
+	{
+		return LOCTEXT("InterpAuto", "Auto (Smart)");
+	}
+	
+	switch (Module->GetInterpMode())
+	{
+		case ECameraRecorderInterpMode::Auto:
+			return LOCTEXT("InterpAuto", "Auto (Smart)");
+		case ECameraRecorderInterpMode::User:
+			return LOCTEXT("InterpUser", "User");
+		case ECameraRecorderInterpMode::Break:
+			return LOCTEXT("InterpBreak", "Break");
+		case ECameraRecorderInterpMode::Linear:
+			return LOCTEXT("InterpLinear", "Linear");
+		case ECameraRecorderInterpMode::Constant:
+			return LOCTEXT("InterpConstant", "Constant");
+		default:
+			return LOCTEXT("InterpAuto", "Auto (Smart)");
+	}
 }
 
 #undef LOCTEXT_NAMESPACE

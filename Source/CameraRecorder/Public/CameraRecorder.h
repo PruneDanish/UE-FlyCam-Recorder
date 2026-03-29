@@ -6,6 +6,7 @@
 #include "Modules/ModuleManager.h"
 #include "Containers/Ticker.h"
 #include "Misc/Guid.h"
+#include "Channels/MovieSceneChannelTraits.h"
 
 class FToolBarBuilder;
 class FMenuBuilder;
@@ -13,6 +14,16 @@ class SCameraRecorderWidget;
 class ULevelSequence;
 class ACineCameraActor;
 class ISequencer;
+
+// Animation interpolation modes for keyframes
+enum class ECameraRecorderInterpMode : uint8
+{
+	Auto,
+	User,
+	Break,
+	Linear,
+	Constant
+};
 
 class FCameraRecorderModule : public IModuleInterface
 {
@@ -43,6 +54,10 @@ public:
 	void SetWarmupFrames(int32 InWarmupFrames) { WarmupFrames = FMath::Max(0, InWarmupFrames); }
 	int32 GetWarmupFrames() const { return WarmupFrames; }
 
+	/** Interpolation mode */
+	void SetInterpMode(ECameraRecorderInterpMode InMode) { InterpMode = InMode; }
+	ECameraRecorderInterpMode GetInterpMode() const { return InterpMode; }
+
 	/** Get warmup state */
 	bool IsInWarmup() const { return bIsInWarmup; }
 
@@ -70,7 +85,8 @@ private:
 	int32 WarmupFrames = 30;
 	int32 CurrentFrame = 0;
 	int32 LastRecordedFrame = -1;
-	int32 WarmupStartFrame = 0;  // NEW: Track where warmup began
+	int32 WarmupStartFrame = 0;
+	ECameraRecorderInterpMode InterpMode = ECameraRecorderInterpMode::Auto;
 	
 	TSharedPtr<class FUICommandList> PluginCommands;
 	TWeakPtr<SCameraRecorderWidget> CameraRecorderWidget;
