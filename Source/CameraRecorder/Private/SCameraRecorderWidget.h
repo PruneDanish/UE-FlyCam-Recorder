@@ -25,8 +25,6 @@ public:
 
 private:
 	FReply OnRecordButtonClicked();
-	FReply OnTestTickButtonClicked();
-	FReply OnDetectCameraButtonClicked();
 
 	void OnFrameStepChanged(int32 NewValue);
 	void OnStartFrameChanged(int32 NewValue);
@@ -40,6 +38,7 @@ private:
 
 	FText GetCurrentFrameText() const;
 	FText GetStatusText() const;
+	FText GetCameraNameText() const;
 
 	bool bIsRecording = false;
 	FCameraRecorderModule* Module = nullptr;

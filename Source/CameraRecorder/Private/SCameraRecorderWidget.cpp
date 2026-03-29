@@ -21,7 +21,7 @@ void SCameraRecorderWidget::Construct(const FArguments& InArgs)
 	{
 		Module->SetStartFrame(0);
 		Module->SetEndFrame(120);
-		Module->SetFrameStep(1);
+		Module->SetFrameStep(10);  // Changed default to 10
 		Module->SetWarmupFrames(30);
 		Module->SetInterpMode(ECameraRecorderInterpMode::Auto);
 	}
@@ -46,68 +46,6 @@ void SCameraRecorderWidget::Construct(const FArguments& InArgs)
 			SNew(STextBlock)
 				.Text(LOCTEXT("Title", "Camera Recorder"))
 				.Font(FCoreStyle::GetDefaultFontStyle("Bold", 14))
-		]
-
-		// Interpolation Mode Dropdown
-		+ SVerticalBox::Slot()
-		.AutoHeight()
-		.Padding(8.f)
-		[
-			SNew(SHorizontalBox)
-			
-			+ SHorizontalBox::Slot()
-			.AutoWidth()
-			.VAlign(VAlign_Center)
-			.Padding(0.f, 0.f, 8.f, 0.f)
-			[
-				SNew(STextBlock)
-					.Text(LOCTEXT("InterpModeLabel", "Interpolation:"))
-					.MinDesiredWidth(100.f)
-					.ToolTipText(LOCTEXT("InterpModeTooltip", "Animation curve interpolation mode for keyframes"))
-			]
-			
-			+ SHorizontalBox::Slot()
-			.FillWidth(1.0f)
-			[
-				SAssignNew(InterpModeComboBox, SComboBox<TSharedPtr<ECameraRecorderInterpMode>>)
-					.OptionsSource(&InterpModeOptions)
-					.OnGenerateWidget(this, &SCameraRecorderWidget::OnGenerateInterpWidget)
-					.OnSelectionChanged(this, &SCameraRecorderWidget::OnInterpSelectionChanged)
-					.InitiallySelectedItem(InterpModeOptions[0]) // Auto is first
-					[
-						SNew(STextBlock)
-							.Text(this, &SCameraRecorderWidget::GetCurrentInterpModeText)
-					]
-			]
-		]
-
-		// Warmup Frames Input
-		+ SVerticalBox::Slot()
-		.AutoHeight()
-		.Padding(8.f)
-		[
-			SNew(SHorizontalBox)
-			
-			+ SHorizontalBox::Slot()
-			.AutoWidth()
-			.VAlign(VAlign_Center)
-			.Padding(0.f, 0.f, 8.f, 0.f)
-			[
-				SNew(STextBlock)
-					.Text(LOCTEXT("WarmupFramesLabel", "Warmup Frames:"))
-					.MinDesiredWidth(100.f)
-					.ToolTipText(LOCTEXT("WarmupFramesTooltip", "Number of frames to play before recording starts"))
-			]
-			
-			+ SHorizontalBox::Slot()
-			.FillWidth(1.0f)
-			[
-				SAssignNew(WarmupFramesSpinBox, SSpinBox<int32>)
-					.MinValue(0)
-					.MaxValue(1000)
-					.Value(30)
-					.OnValueChanged(this, &SCameraRecorderWidget::OnWarmupFramesChanged)
-			]
 		]
 
 		// Start Frame Input
@@ -189,8 +127,70 @@ void SCameraRecorderWidget::Construct(const FArguments& InArgs)
 				SAssignNew(FrameStepSpinBox, SSpinBox<int32>)
 					.MinValue(1)
 					.MaxValue(100)
-					.Value(1)
+					.Value(10)  // Changed default to 10
 					.OnValueChanged(this, &SCameraRecorderWidget::OnFrameStepChanged)
+			]
+		]
+
+		// Warmup Frames Input
+		+ SVerticalBox::Slot()
+		.AutoHeight()
+		.Padding(8.f)
+		[
+			SNew(SHorizontalBox)
+			
+			+ SHorizontalBox::Slot()
+			.AutoWidth()
+			.VAlign(VAlign_Center)
+			.Padding(0.f, 0.f, 8.f, 0.f)
+			[
+				SNew(STextBlock)
+					.Text(LOCTEXT("WarmupFramesLabel", "Warmup Frames:"))
+					.MinDesiredWidth(100.f)
+					.ToolTipText(LOCTEXT("WarmupFramesTooltip", "Number of frames to play before recording starts"))
+			]
+			
+			+ SHorizontalBox::Slot()
+			.FillWidth(1.0f)
+			[
+				SAssignNew(WarmupFramesSpinBox, SSpinBox<int32>)
+					.MinValue(0)
+					.MaxValue(1000)
+					.Value(30)
+					.OnValueChanged(this, &SCameraRecorderWidget::OnWarmupFramesChanged)
+			]
+		]
+
+		// Interpolation Mode Dropdown
+		+ SVerticalBox::Slot()
+		.AutoHeight()
+		.Padding(8.f)
+		[
+			SNew(SHorizontalBox)
+			
+			+ SHorizontalBox::Slot()
+			.AutoWidth()
+			.VAlign(VAlign_Center)
+			.Padding(0.f, 0.f, 8.f, 0.f)
+			[
+				SNew(STextBlock)
+					.Text(LOCTEXT("InterpModeLabel", "Interpolation:"))
+					.MinDesiredWidth(100.f)
+					.ToolTipText(LOCTEXT("InterpModeTooltip", "Animation curve interpolation mode for keyframes"))
+			]
+			
+			+ SHorizontalBox::Slot()
+			.FillWidth(1.0f)
+			[
+				SAssignNew(InterpModeComboBox, SComboBox<TSharedPtr<ECameraRecorderInterpMode>>)
+					.OptionsSource(&InterpModeOptions)
+					.OnGenerateWidget(this, &SCameraRecorderWidget::OnGenerateInterpWidget)
+					.OnSelectionChanged(this, &SCameraRecorderWidget::OnInterpSelectionChanged)
+					.InitiallySelectedItem(InterpModeOptions[0]) // Auto is first
+					[
+						SNew(STextBlock)
+							.Text(this, &SCameraRecorderWidget::GetCurrentInterpModeText)
+					]
 			]
 		]
 
@@ -242,39 +242,52 @@ void SCameraRecorderWidget::Construct(const FArguments& InArgs)
 			]
 		]
 
+		// Camera Display
+		+ SVerticalBox::Slot()
+		.AutoHeight()
+		.Padding(8.f)
+		[
+			SNew(SHorizontalBox)
+			
+			+ SHorizontalBox::Slot()
+			.AutoWidth()
+			.VAlign(VAlign_Center)
+			.Padding(0.f, 0.f, 8.f, 0.f)
+			[
+				SNew(STextBlock)
+					.Text(LOCTEXT("CameraLabel", "Camera:"))
+					.MinDesiredWidth(100.f)
+			]
+			
+			+ SHorizontalBox::Slot()
+			.FillWidth(1.0f)
+			.VAlign(VAlign_Center)
+			[
+				SNew(STextBlock)
+					.Text(this, &SCameraRecorderWidget::GetCameraNameText)
+					.Font(FCoreStyle::GetDefaultFontStyle("Regular", 10))
+			]
+		]
+
 		// Record Button
 		+ SVerticalBox::Slot()
 		.AutoHeight()
 		.Padding(8.f)
 		[
-			SNew(SButton)
-				.Text_Lambda([this]()
-					{
-						return bIsRecording ?
-							LOCTEXT("StopRecording", "Stop Recording") :
-							LOCTEXT("Record", "Record");
-					})
-				.OnClicked(this, &SCameraRecorderWidget::OnRecordButtonClicked)
-		]
-
-		// Test Tick Button
-		+ SVerticalBox::Slot()
-		.AutoHeight()
-		.Padding(8.f)
-		[
-			SNew(SButton)
-				.Text(LOCTEXT("TestTick", "Test Tick Function"))
-				.OnClicked(this, &SCameraRecorderWidget::OnTestTickButtonClicked)
-		]
-
-		// Detect Camera Button
-		+ SVerticalBox::Slot()
-		.AutoHeight()
-		.Padding(8.f)
-		[
-			SNew(SButton)
-				.Text(LOCTEXT("DetectCamera", "Detect Camera"))
-				.OnClicked(this, &SCameraRecorderWidget::OnDetectCameraButtonClicked)
+			SNew(SBox)
+				.HeightOverride(45.f)  // 1.5x the default height (~40px -> 60px)
+			[
+				SNew(SButton)
+					.HAlign(HAlign_Center)  // Center-align button content
+					.VAlign(VAlign_Center)  // Vertically center the text
+					.Text_Lambda([this]()
+						{
+							return bIsRecording ?
+								LOCTEXT("StopRecording", "Stop Recording") :
+								LOCTEXT("Record", "Record");
+						})
+					.OnClicked(this, &SCameraRecorderWidget::OnRecordButtonClicked)
+			]
 		]
 	];
 }
@@ -286,11 +299,40 @@ void SCameraRecorderWidget::OnRecordingStopped()
 
 FText SCameraRecorderWidget::GetCurrentFrameText() const
 {
-	if (Module)
+	if (Module && Module->IsRecording())
 	{
 		return FText::AsNumber(Module->GetCurrentFrame());
 	}
-	return FText::FromString(TEXT("0"));
+	return FText::FromString(TEXT("-"));
+}
+
+FText SCameraRecorderWidget::GetCameraNameText() const
+{
+	if (!GEditor)
+	{
+		return LOCTEXT("NoCameraPiloted", "No camera piloted");
+	}
+
+	ULevelEditorSubsystem* LevelEditorSubsystem = GEditor->GetEditorSubsystem<ULevelEditorSubsystem>();
+	if (!LevelEditorSubsystem)
+	{
+		return LOCTEXT("NoCameraPiloted", "No camera piloted");
+	}
+
+	AActor* PilotActor = LevelEditorSubsystem->GetPilotLevelActor();
+	if (!PilotActor)
+	{
+		return LOCTEXT("NoCameraPiloted", "No camera piloted");
+	}
+
+	ACineCameraActor* CineCam = Cast<ACineCameraActor>(PilotActor);
+	if (!CineCam)
+	{
+		return FText::Format(LOCTEXT("NotACineCam", "{0} (not a CineCameraActor)"), 
+			FText::FromString(PilotActor->GetActorLabel()));
+	}
+
+	return FText::FromString(CineCam->GetActorLabel());
 }
 
 FText SCameraRecorderWidget::GetStatusText() const
@@ -363,66 +405,6 @@ FReply SCameraRecorderWidget::OnRecordButtonClicked()
 	{
 		Module->SetRecording(bIsRecording);
 	}
-
-	return FReply::Handled();
-}
-
-FReply SCameraRecorderWidget::OnTestTickButtonClicked()
-{
-	UE_LOG(LogTemp, Warning, TEXT("Test Tick Function clicked"));
-	UE_LOG(LogTemp, Warning, TEXT("bIsRecording: %s"), bIsRecording ? TEXT("TRUE") : TEXT("FALSE"));
-	if (Module)
-	{
-		UE_LOG(LogTemp, Warning, TEXT("Module bIsRecording: %s"), Module->IsRecording() ? TEXT("TRUE") : TEXT("FALSE"));
-		UE_LOG(LogTemp, Warning, TEXT("Warmup Frames: %d"), Module->GetWarmupFrames());
-		UE_LOG(LogTemp, Warning, TEXT("Frame Step: %d"), Module->GetFrameStep());
-		UE_LOG(LogTemp, Warning, TEXT("Frame Range: %d - %d"), Module->GetStartFrame(), Module->GetEndFrame());
-	}
-	return FReply::Handled();
-}
-
-FReply SCameraRecorderWidget::OnDetectCameraButtonClicked()
-{
-	if (!GEditor)
-	{
-		UE_LOG(LogTemp, Warning, TEXT("GEditor is null"));
-		return FReply::Handled();
-	}
-
-	ULevelEditorSubsystem* LevelEditorSubsystem =
-		GEditor->GetEditorSubsystem<ULevelEditorSubsystem>();
-
-	if (!LevelEditorSubsystem)
-	{
-		UE_LOG(LogTemp, Warning, TEXT("LevelEditorSubsystem is null"));
-		return FReply::Handled();
-	}
-
-	AActor* PilotActor = LevelEditorSubsystem->GetPilotLevelActor();
-
-	if (!PilotActor)
-	{
-		UE_LOG(LogTemp, Warning, TEXT("No piloted actor found"));
-		return FReply::Handled();
-	}
-
-	ACineCameraActor* CineCam = Cast<ACineCameraActor>(PilotActor);
-
-	if (!CineCam)
-	{
-		UE_LOG(LogTemp, Warning, TEXT("Piloted actor is not a CineCameraActor: %s"), *PilotActor->GetName());
-		return FReply::Handled();
-	}
-
-	UE_LOG(LogTemp, Warning, TEXT("Detected CineCameraActor: %s"), *CineCam->GetName());
-
-	const FTransform CameraTransform = CineCam->GetActorTransform();
-	const FVector Location = CameraTransform.GetLocation();
-	const FRotator Rotation = CameraTransform.Rotator();
-
-	UE_LOG(LogTemp, Warning, TEXT("Cam Loc: X=%.2f Y=%.2f Z=%.2f | Rot: P=%.2f Y=%.2f R=%.2f"),
-		Location.X, Location.Y, Location.Z,
-		Rotation.Pitch, Rotation.Yaw, Rotation.Roll);
 
 	return FReply::Handled();
 }
