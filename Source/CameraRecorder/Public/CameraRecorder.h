@@ -73,6 +73,7 @@ private:
 	TSharedPtr<ISequencer> GetActiveSequencer();
 
 	void RecordCameraKeyframe(ACineCameraActor* CineCam, int32 FrameNumber);
+	void RecordCameraKeyframeWithTransform(const FTransform& Transform, int32 FrameNumber);
 	ULevelSequence* GetOrCreateLevelSequence();
 	FGuid GetOrCreateCameraBinding(ACineCameraActor* CineCam);
 	void ClearExistingKeyframes(const FGuid& CameraBinding);
@@ -96,4 +97,7 @@ private:
 	TWeakObjectPtr<ACineCameraActor> RecordingCamera;
 	TWeakPtr<ISequencer> ActiveSequencer;
 	FGuid CachedCameraBinding;
+	
+	// Storage for transforms recorded during playback (frame number, transform)
+	TArray<TPair<int32, FTransform>> RecordedTransforms;
 };
