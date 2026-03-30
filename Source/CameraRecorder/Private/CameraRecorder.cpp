@@ -362,12 +362,20 @@ void FCameraRecorderModule::SetRecording(bool bInIsRecording)
 		// Reset tracking variables
 		bIsInWarmup = WarmupFrames > 0;
 		LastRecordedFrame = -1;
-		CachedCameraBinding.Invalidate();
 		RecordedTransforms.Empty();
 		
 		WarmupStartFrame = StartFrame - WarmupFrames;
 		
-		CurrentLevelSequence = GetOrCreateLevelSequence();
+		ULevelSequence* NewSequence = GetOrCreateLevelSequence();
+		
+		// CRITICAL: If the sequence changed, invalidate the cached binding
+		if (CurrentLevelSequence.Get() != NewSequence)
+		{
+			UE_LOG(LogTemp, Warning, TEXT("Sequence changed - invalidating cached camera binding"));
+			CachedCameraBinding.Invalidate();
+		}
+		
+		CurrentLevelSequence = NewSequence;
 		
 		if (!CurrentLevelSequence.IsValid())
 		{
@@ -552,11 +560,13 @@ void FCameraRecorderModule::StopRecording()
 	
 	UE_LOG(LogTemp, Warning, TEXT("===== Recording stopped at frame %d ====="), CurrentFrame);
 	
-	CurrentLevelSequence.Reset();
+	// DON'T reset CurrentLevelSequence - we need it for comparison next time!
+	// CurrentLevelSequence.Reset();  // ? REMOVED THIS LINE
 	RecordingCamera.Reset();
 	ActiveSequencer.Reset();
 	LastRecordedFrame = -1;
-	CachedCameraBinding.Invalidate();
+	
+	// CachedCameraBinding stays valid for next recording
 }
 
 ULevelSequence* FCameraRecorderModule::GetOrCreateLevelSequence()
@@ -595,10 +605,28 @@ FGuid FCameraRecorderModule::GetOrCreateCameraBinding(ACineCameraActor* CineCam)
 		return FGuid();
 	}
 
-	// Return cached binding if valid
+	// Return cached binding if valid and verify it still points to this camera
 	if (CachedCameraBinding.IsValid())
 	{
-		return CachedCameraBinding;
+		// Validate the cached binding still points to this camera
+		UMovieScene* MovieScene = CurrentLevelSequence->GetMovieScene();
+		if (MovieScene)
+		{
+			TArray<UObject*, TInlineAllocator<1>> BoundObjects;
+			CurrentLevelSequence->LocateBoundObjects(CachedCameraBinding, CineCam->GetWorld(), BoundObjects);
+			
+			for (UObject* BoundObject : BoundObjects)
+			{
+				if (BoundObject == CineCam)
+				{
+					UE_LOG(LogTemp, Log, TEXT("Reusing cached camera binding for %s"), *CineCam->GetActorLabel());
+					return CachedCameraBinding;
+				}
+			}
+			
+			UE_LOG(LogTemp, Warning, TEXT("Cached binding is stale, searching for existing binding..."));
+			CachedCameraBinding.Invalidate();
+		}
 	}
 
 	UMovieScene* MovieScene = CurrentLevelSequence->GetMovieScene();
@@ -659,11 +687,10 @@ FGuid FCameraRecorderModule::GetOrCreateCameraBinding(ACineCameraActor* CineCam)
 			// Verify this is actually a camera actor class
 			if (Possessable.GetPossessedObjectClass()->IsChildOf(ACineCameraActor::StaticClass()))
 			{
-				// Try to rebind it to our camera
-				CurrentLevelSequence->BindPossessableObject(Possessable.GetGuid(), *CineCam, CineCam->GetWorld());
-				
+				// CRITICAL FIX: Don't call BindPossessableObject - it ADDS to the array!
+				// Just cache and return the GUID we found
 				CachedCameraBinding = Possessable.GetGuid();
-				UE_LOG(LogTemp, Log, TEXT("Found existing camera binding by name match and rebound: %s (GUID: %s)"), 
+				UE_LOG(LogTemp, Log, TEXT("Found existing camera binding by name match: %s (GUID: %s)"), 
 					*CameraName, *CachedCameraBinding.ToString());
 				return CachedCameraBinding;
 			}
