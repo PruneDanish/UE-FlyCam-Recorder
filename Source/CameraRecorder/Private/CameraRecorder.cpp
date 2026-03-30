@@ -885,6 +885,35 @@ void FCameraRecorderModule::OnTick()
 		CurrentFrame);
 }
 
+ULevelSequence* FCameraRecorderModule::GetOrCreateLevelSequence()
+{
+	TSharedPtr<ISequencer> Sequencer = GetActiveSequencer();
+	if (!Sequencer.IsValid())
+	{
+		UE_LOG(LogTemp, Error, TEXT("No active Sequencer found!"));
+		return nullptr;
+	}
+
+	// Get the currently focused/edited Level Sequence
+	UMovieSceneSequence* FocusedSequence = Sequencer->GetFocusedMovieSceneSequence();
+	if (!FocusedSequence)
+	{
+		UE_LOG(LogTemp, Error, TEXT("No Level Sequence is currently open in Sequencer!"));
+		return nullptr;
+	}
+
+	// Cast to ULevelSequence (most common type)
+	ULevelSequence* LevelSeq = Cast<ULevelSequence>(FocusedSequence);
+	if (!LevelSeq)
+	{
+		UE_LOG(LogTemp, Error, TEXT("Focused sequence is not a Level Sequence!"));
+		return nullptr;
+	}
+
+	UE_LOG(LogTemp, Log, TEXT("Using Level Sequence: %s"), *LevelSeq->GetName());
+	return LevelSeq;
+}
+
 #undef LOCTEXT_NAMESPACE
 	
 IMPLEMENT_MODULE(FCameraRecorderModule, CameraRecorder)
