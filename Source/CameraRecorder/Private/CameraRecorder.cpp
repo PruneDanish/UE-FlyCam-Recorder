@@ -1038,6 +1038,30 @@ void FCameraRecorderModule::OnTick()
 	if (EndFrame > 0 && CurrentFrame >= EndFrame)
 	{
 		UE_LOG(LogTemp, Warning, TEXT("===== Reached end frame %d, stopping recording ====="), EndFrame);
+		
+		// If "keyframe on last frame" is enabled and we haven't recorded the exact end frame yet, record it now
+		if (bKeyframeOnLastFrame && LastRecordedFrame != EndFrame)
+		{
+			if (GEditor)
+			{
+				ULevelEditorSubsystem* LevelEditorSubsystem = GEditor->GetEditorSubsystem<ULevelEditorSubsystem>();
+				if (LevelEditorSubsystem)
+				{
+					AActor* PilotActor = LevelEditorSubsystem->GetPilotLevelActor();
+					if (PilotActor)
+					{
+						ACineCameraActor* CineCam = Cast<ACineCameraActor>(PilotActor);
+						if (CineCam)
+						{
+							FTransform FinalTransform = CineCam->GetActorTransform();
+							RecordedTransforms.Add(TPair<int32, FTransform>(EndFrame, FinalTransform));
+							UE_LOG(LogTemp, Warning, TEXT("Added final keyframe at frame %d"), EndFrame);
+						}
+					}
+				}
+			}
+		}
+		
 		StopRecording();
 		return;
 	}
@@ -1092,35 +1116,6 @@ void FCameraRecorderModule::OnTick()
 	const int32 KeyframeNumber = (CurrentFrame - StartFrame) / FrameStep;
 	UE_LOG(LogTemp, Log, TEXT("[Keyframe %d | Frame %d] Stored transform (will write after recording)"),
 		KeyframeNumber, CurrentFrame);
-}
-
-ULevelSequence* FCameraRecorderModule::GetOrCreateLevelSequence()
-{
-	TSharedPtr<ISequencer> Sequencer = GetActiveSequencer();
-	if (!Sequencer.IsValid())
-	{
-		UE_LOG(LogTemp, Error, TEXT("No active Sequencer found!"));
-		return nullptr;
-	}
-
-	// Get the currently focused/edited Level Sequence
-	UMovieSceneSequence* FocusedSequence = Sequencer->GetFocusedMovieSceneSequence();
-	if (!FocusedSequence)
-	{
-		UE_LOG(LogTemp, Error, TEXT("No Level Sequence is currently open in Sequencer!"));
-		return nullptr;
-	}
-
-	// Cast to ULevelSequence (most common type)
-	ULevelSequence* LevelSeq = Cast<ULevelSequence>(FocusedSequence);
-	if (!LevelSeq)
-	{
-		UE_LOG(LogTemp, Error, TEXT("Focused sequence is not a Level Sequence!"));
-		return nullptr;
-	}
-
-	UE_LOG(LogTemp, Log, TEXT("Using Level Sequence: %s"), *LevelSeq->GetName());
-	return LevelSeq;
 }
 
 #undef LOCTEXT_NAMESPACE

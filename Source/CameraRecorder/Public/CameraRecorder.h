@@ -58,6 +58,10 @@ public:
 	void SetInterpMode(ECameraRecorderInterpMode InMode) { InterpMode = InMode; }
 	ECameraRecorderInterpMode GetInterpMode() const { return InterpMode; }
 
+	/** Keyframe on last frame */
+	void SetKeyframeOnLastFrame(bool bInKeyframeOnLastFrame) { bKeyframeOnLastFrame = bInKeyframeOnLastFrame; }
+	bool GetKeyframeOnLastFrame() const { return bKeyframeOnLastFrame; }
+
 	/** Get warmup state */
 	bool IsInWarmup() const { return bIsInWarmup; }
 
@@ -88,6 +92,7 @@ private:
 	int32 LastRecordedFrame = -1;
 	int32 WarmupStartFrame = 0;
 	ECameraRecorderInterpMode InterpMode = ECameraRecorderInterpMode::Auto;
+	bool bKeyframeOnLastFrame = true;
 	
 	TSharedPtr<class FUICommandList> PluginCommands;
 	TWeakPtr<SCameraRecorderWidget> CameraRecorderWidget;

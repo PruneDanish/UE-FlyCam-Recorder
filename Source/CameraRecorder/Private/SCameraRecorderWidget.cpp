@@ -24,6 +24,7 @@ void SCameraRecorderWidget::Construct(const FArguments& InArgs)
 		Module->SetFrameStep(10);  // Changed default to 10
 		Module->SetWarmupFrames(30);
 		Module->SetInterpMode(ECameraRecorderInterpMode::Auto);
+		Module->SetKeyframeOnLastFrame(true);
 	}
 
 	bIsRecording = false;
@@ -186,11 +187,39 @@ void SCameraRecorderWidget::Construct(const FArguments& InArgs)
 					.OptionsSource(&InterpModeOptions)
 					.OnGenerateWidget(this, &SCameraRecorderWidget::OnGenerateInterpWidget)
 					.OnSelectionChanged(this, &SCameraRecorderWidget::OnInterpSelectionChanged)
-					.InitiallySelectedItem(InterpModeOptions[0]) // Auto is first
+					.InitiallySelectedItem(InterpModeOptions[0])
 					[
 						SNew(STextBlock)
 							.Text(this, &SCameraRecorderWidget::GetCurrentInterpModeText)
 					]
+			]
+		]
+
+		// Keyframe on Last Frame Checkbox
+		+ SVerticalBox::Slot()
+		.AutoHeight()
+		.Padding(8.f)
+		[
+			SNew(SHorizontalBox)
+			
+			+ SHorizontalBox::Slot()
+			.AutoWidth()
+			.VAlign(VAlign_Center)
+			.Padding(0.f, 0.f, 8.f, 0.f)
+			[
+				SNew(STextBlock)
+					.Text(LOCTEXT("KeyframeOnLastFrameLabel", "Keyframe Last Frame:"))
+					.MinDesiredWidth(100.f)
+					.ToolTipText(LOCTEXT("KeyframeOnLastFrameTooltip", "Always add a keyframe on the final frame, regardless of frame step"))
+			]
+			
+			+ SHorizontalBox::Slot()
+			.AutoWidth()
+			.VAlign(VAlign_Center)
+			[
+				SAssignNew(KeyframeOnLastFrameCheckBox, SCheckBox)
+					.IsChecked(ECheckBoxState::Checked)
+					.OnCheckStateChanged(this, &SCameraRecorderWidget::OnKeyframeOnLastFrameChanged)
 			]
 		]
 
@@ -366,6 +395,16 @@ void SCameraRecorderWidget::OnWarmupFramesChanged(int32 NewValue)
 	{
 		Module->SetWarmupFrames(NewValue);
 		UE_LOG(LogTemp, Log, TEXT("Warmup Frames changed to: %d"), NewValue);
+	}
+}
+
+void SCameraRecorderWidget::OnKeyframeOnLastFrameChanged(ECheckBoxState NewState)
+{
+	if (Module)
+	{
+		bool bChecked = (NewState == ECheckBoxState::Checked);
+		Module->SetKeyframeOnLastFrame(bChecked);
+		UE_LOG(LogTemp, Log, TEXT("Keyframe on Last Frame: %s"), bChecked ? TEXT("ON") : TEXT("OFF"));
 	}
 }
 

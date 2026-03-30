@@ -7,6 +7,7 @@
 #include "Widgets/SCompoundWidget.h"
 #include "Widgets/Input/SSpinBox.h"
 #include "Widgets/Input/SComboBox.h"
+#include "Widgets/Input/SCheckBox.h"
 #include "CameraRecorder.h"
 
 class FCameraRecorderModule;
@@ -30,6 +31,7 @@ private:
 	void OnStartFrameChanged(int32 NewValue);
 	void OnEndFrameChanged(int32 NewValue);
 	void OnWarmupFramesChanged(int32 NewValue);
+	void OnKeyframeOnLastFrameChanged(ECheckBoxState NewState);
 	
 	// Interpolation dropdown
 	TSharedRef<SWidget> OnGenerateInterpWidget(TSharedPtr<ECameraRecorderInterpMode> InItem);
@@ -47,6 +49,7 @@ private:
 	TSharedPtr<SSpinBox<int32>> StartFrameSpinBox;
 	TSharedPtr<SSpinBox<int32>> EndFrameSpinBox;
 	TSharedPtr<SSpinBox<int32>> WarmupFramesSpinBox;
+	TSharedPtr<SCheckBox> KeyframeOnLastFrameCheckBox;
 	
 	// Interpolation dropdown data
 	TArray<TSharedPtr<ECameraRecorderInterpMode>> InterpModeOptions;
