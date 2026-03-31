@@ -25,6 +25,29 @@ enum class ECameraRecorderInterpMode : uint8
 	Constant
 };
 
+// NEW: Structure to store transform with unwrapped euler angles
+struct FRecordedCameraFrame
+{
+	int32 FrameNumber;
+	FVector Location;
+	FRotator Rotation;  // Unwrapped euler angles (can exceed ±180°)
+	FVector Scale;
+
+	FRecordedCameraFrame()
+		: FrameNumber(0)
+		, Location(FVector::ZeroVector)
+		, Rotation(FRotator::ZeroRotator)
+		, Scale(FVector::OneVector)
+	{}
+
+	FRecordedCameraFrame(int32 InFrame, const FTransform& InTransform)
+		: FrameNumber(InFrame)
+		, Location(InTransform.GetLocation())
+		, Rotation(InTransform.Rotator())
+		, Scale(InTransform.GetScale3D())
+	{}
+};
+
 class FCameraRecorderModule : public IModuleInterface
 {
 public:
@@ -62,6 +85,10 @@ public:
 	void SetKeyframeOnLastFrame(bool bInKeyframeOnLastFrame) { bKeyframeOnLastFrame = bInKeyframeOnLastFrame; }
 	bool GetKeyframeOnLastFrame() const { return bKeyframeOnLastFrame; }
 
+	/** Snap rotation correction */
+	void SetSnapRotationCorrection(bool bInSnapRotationCorrection) { bSnapRotationCorrection = bInSnapRotationCorrection; }
+	bool GetSnapRotationCorrection() const { return bSnapRotationCorrection; }
+
 	/** Get warmup state */
 	bool IsInWarmup() const { return bIsInWarmup; }
 
@@ -77,10 +104,11 @@ private:
 	TSharedPtr<ISequencer> GetActiveSequencer();
 
 	void RecordCameraKeyframe(ACineCameraActor* CineCam, int32 FrameNumber);
-	void RecordCameraKeyframeWithTransform(const FTransform& Transform, int32 FrameNumber);
+	void RecordCameraKeyframeWithRotation(const FVector& Location, const FRotator& Rotation, int32 FrameNumber); // NEW
 	ULevelSequence* GetOrCreateLevelSequence();
 	FGuid GetOrCreateCameraBinding(ACineCameraActor* CineCam);
 	void ClearExistingKeyframes(const FGuid& CameraBinding);
+	void ApplyRotationSnapCorrection(); // NEW: Post-process recorded transforms
 
 	bool bIsRecording = false;
 	bool bIsInWarmup = false;
@@ -93,6 +121,7 @@ private:
 	int32 WarmupStartFrame = 0;
 	ECameraRecorderInterpMode InterpMode = ECameraRecorderInterpMode::Auto;
 	bool bKeyframeOnLastFrame = true;
+	bool bSnapRotationCorrection = true; // NEW: Enable by default
 	
 	TSharedPtr<class FUICommandList> PluginCommands;
 	TWeakPtr<SCameraRecorderWidget> CameraRecorderWidget;
@@ -103,6 +132,6 @@ private:
 	TWeakPtr<ISequencer> ActiveSequencer;
 	FGuid CachedCameraBinding;
 	
-	// Storage for transforms recorded during playback (frame number, transform)
-	TArray<TPair<int32, FTransform>> RecordedTransforms;
+	// Storage for recorded frames with unwrapped rotations
+	TArray<FRecordedCameraFrame> RecordedFrames;
 };

@@ -32,6 +32,7 @@ private:
 	void OnEndFrameChanged(int32 NewValue);
 	void OnWarmupFramesChanged(int32 NewValue);
 	void OnKeyframeOnLastFrameChanged(ECheckBoxState NewState);
+	void OnSnapRotationCorrectionChanged(ECheckBoxState NewState); // NEW
 	
 	// Interpolation dropdown
 	TSharedRef<SWidget> OnGenerateInterpWidget(TSharedPtr<ECameraRecorderInterpMode> InItem);
@@ -50,6 +51,7 @@ private:
 	TSharedPtr<SSpinBox<int32>> EndFrameSpinBox;
 	TSharedPtr<SSpinBox<int32>> WarmupFramesSpinBox;
 	TSharedPtr<SCheckBox> KeyframeOnLastFrameCheckBox;
+	TSharedPtr<SCheckBox> SnapRotationCorrectionCheckBox; // NEW
 	
 	// Interpolation dropdown data
 	TArray<TSharedPtr<ECameraRecorderInterpMode>> InterpModeOptions;

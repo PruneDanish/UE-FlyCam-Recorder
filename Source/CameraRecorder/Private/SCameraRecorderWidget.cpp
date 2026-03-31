@@ -223,6 +223,35 @@ void SCameraRecorderWidget::Construct(const FArguments& InArgs)
 			]
 		]
 
+		// Rotation Snap Correction Checkbox
+		+ SVerticalBox::Slot()
+		.AutoHeight()
+		.Padding(8.f)
+		[
+			SNew(SHorizontalBox)
+			
+			+ SHorizontalBox::Slot()
+			.AutoWidth()
+			.VAlign(VAlign_Center)
+			.Padding(0.f, 0.f, 8.f, 0.f)
+			[
+				SNew(STextBlock)
+					.Text(FText::FromString("Rotation Snap Correction:"))
+					.MinDesiredWidth(100.f)
+					.ToolTipText(FText::FromString("Automatically detect and fix rotation snaps/wraps"))
+			]
+			
+			+ SHorizontalBox::Slot()
+			.AutoWidth()
+			.VAlign(VAlign_Center)
+			[
+				SAssignNew(SnapRotationCorrectionCheckBox, SCheckBox)
+					.IsChecked(Module ? (Module->GetSnapRotationCorrection() ? ECheckBoxState::Checked : ECheckBoxState::Unchecked) : ECheckBoxState::Unchecked)
+					.OnCheckStateChanged(this, &SCameraRecorderWidget::OnSnapRotationCorrectionChanged)
+					.ToolTipText(FText::FromString("Automatically detect and fix rotation snaps/wraps"))
+			]
+		]
+
 		// Status Display
 		+ SVerticalBox::Slot()
 		.AutoHeight()
@@ -507,6 +536,14 @@ FText SCameraRecorderWidget::GetCurrentInterpModeText() const
 			return LOCTEXT("InterpConstant", "Constant");
 		default:
 			return LOCTEXT("InterpAuto", "Auto (Smart)");
+	}
+}
+
+void SCameraRecorderWidget::OnSnapRotationCorrectionChanged(ECheckBoxState NewState)
+{
+	if (Module)
+	{
+		Module->SetSnapRotationCorrection(NewState == ECheckBoxState::Checked);
 	}
 }
 

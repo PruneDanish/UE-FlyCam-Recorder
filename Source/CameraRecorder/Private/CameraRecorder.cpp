@@ -159,7 +159,7 @@ void FCameraRecorderModule::StartSequencerPlayback()
 			FFrameRate DisplayRate = MovieScene->GetDisplayRate();
 			FFrameRate TickResolution = MovieScene->GetTickResolution();
 			
-			// Get the CURRENT playback range
+			// Get theCURRENT playback range
 			TRange<FFrameNumber> CurrentRange = MovieScene->GetPlaybackRange();
 			
 			// Convert our needed start/end to tick resolution
@@ -362,7 +362,7 @@ void FCameraRecorderModule::SetRecording(bool bInIsRecording)
 		// Reset tracking variables
 		bIsInWarmup = WarmupFrames > 0;
 		LastRecordedFrame = -1;
-		RecordedTransforms.Empty();
+		RecordedFrames.Empty(); // CHANGED: Use new array
 		
 		WarmupStartFrame = StartFrame - WarmupFrames;
 		
@@ -532,23 +532,23 @@ void FCameraRecorderModule::StopRecording()
 			}
 		}
 		
-		// NOW write all the stored transforms as keyframes
-		if (RecordedTransforms.Num() > 0)
+		// NOW write all the stored frames as keyframes
+		if (RecordedFrames.Num() > 0)
 		{
-			UE_LOG(LogTemp, Warning, TEXT("Writing %d stored keyframes to sequence..."), RecordedTransforms.Num());
+			// Apply rotation snap correction BEFORE writing keyframes
+			ApplyRotationSnapCorrection();
 			
-			for (const TPair<int32, FTransform>& RecordedData : RecordedTransforms)
+			UE_LOG(LogTemp, Warning, TEXT("Writing %d stored keyframes to sequence..."), RecordedFrames.Num());
+			
+			for (const FRecordedCameraFrame& Frame : RecordedFrames)
 			{
-				int32 FrameNum = RecordedData.Key;
-				const FTransform& Transform = RecordedData.Value;
-				
-				RecordCameraKeyframeWithTransform(Transform, FrameNum);
+				RecordCameraKeyframeWithRotation(Frame.Location, Frame.Rotation, Frame.FrameNumber);
 			}
 			
-			UE_LOG(LogTemp, Warning, TEXT("Successfully wrote %d keyframes!"), RecordedTransforms.Num());
+			UE_LOG(LogTemp, Warning, TEXT("Successfully wrote %d keyframes!"), RecordedFrames.Num());
 			
 			// Clear the stored data
-			RecordedTransforms.Empty();
+			RecordedFrames.Empty();
 		}
 	}
 	
@@ -561,7 +561,6 @@ void FCameraRecorderModule::StopRecording()
 	UE_LOG(LogTemp, Warning, TEXT("===== Recording stopped at frame %d ====="), CurrentFrame);
 	
 	// DON'T reset CurrentLevelSequence - we need it for comparison next time!
-	// CurrentLevelSequence.Reset();  // ? REMOVED THIS LINE
 	RecordingCamera.Reset();
 	ActiveSequencer.Reset();
 	LastRecordedFrame = -1;
@@ -840,7 +839,7 @@ void FCameraRecorderModule::RecordCameraKeyframe(ACineCameraActor* CineCam, int3
 	}
 }
 
-void FCameraRecorderModule::RecordCameraKeyframeWithTransform(const FTransform& Transform, int32 FrameNumber)
+void FCameraRecorderModule::RecordCameraKeyframeWithRotation(const FVector& Location, const FRotator& Rotation, int32 FrameNumber)
 {
 	if (!CurrentLevelSequence.IsValid())
 	{
@@ -853,7 +852,7 @@ void FCameraRecorderModule::RecordCameraKeyframeWithTransform(const FTransform& 
 		return;
 	}
 
-	// Get or create the camera binding (cached after first call)
+	// Get the cached camera binding
 	FGuid CameraBinding = CachedCameraBinding;
 	if (!CameraBinding.IsValid())
 	{
@@ -889,10 +888,6 @@ void FCameraRecorderModule::RecordCameraKeyframeWithTransform(const FTransform& 
 		TransformSection->SetRange(TRange<FFrameNumber>::All());
 	}
 
-	// Extract location and rotation from the provided transform
-	FVector Location = Transform.GetLocation();
-	FRotator Rotation = Transform.Rotator();
-
 	// Convert frame to frame number
 	FFrameRate FrameRate = MovieScene->GetTickResolution();
 	FFrameNumber FrameNum = FFrameRate::TransformTime(FFrameTime(FrameNumber), MovieScene->GetDisplayRate(), FrameRate).FloorToFrame();
@@ -902,7 +897,7 @@ void FCameraRecorderModule::RecordCameraKeyframeWithTransform(const FTransform& 
 	
 	if (Channels.Num() >= 6)
 	{
-		// Determine how to add keys based on interpolation mode
+		// DIRECTLY write the unwrapped euler angles to the channels
 		switch (InterpMode)
 		{
 			case ECameraRecorderInterpMode::Linear:
@@ -966,34 +961,137 @@ void FCameraRecorderModule::RecordCameraKeyframeWithTransform(const FTransform& 
 	}
 }
 
-void FCameraRecorderModule::RegisterMenus()
+void FCameraRecorderModule::ApplyRotationSnapCorrection()
 {
-	FToolMenuOwnerScoped OwnerScoped(this);
-
+	if (!bSnapRotationCorrection || RecordedFrames.Num() < 2)
 	{
-		UToolMenu* Menu = UToolMenus::Get()->ExtendMenu("LevelEditor.MainMenu.Window");
-		{
-			FToolMenuSection& Section = Menu->FindOrAddSection("WindowLayout");
-			Section.AddMenuEntryWithCommandList(FCameraRecorderCommands::Get().OpenPluginWindow, PluginCommands);
-		}
+		UE_LOG(LogTemp, Warning, TEXT("Snap correction skipped - Enabled: %s, Frames: %d"), 
+			bSnapRotationCorrection ? TEXT("YES") : TEXT("NO"), 
+			RecordedFrames.Num());
+		return;
 	}
 
+	UE_LOG(LogTemp, Warning, TEXT("===== STARTING ROTATION SNAP CORRECTION ON %d FRAMES ====="), RecordedFrames.Num());
+
+	double PitchOffset = 0.0;
+	double YawOffset = 0.0;
+	double RollOffset = 0.0;
+	int32 SnapsDetected = 0;
+	int32 FramesCorrected = 0;
+
+	FRotator PrevRotation = RecordedFrames[0].Rotation;
+	
+	UE_LOG(LogTemp, Warning, TEXT("Frame %d: Reference rotation (P:%.2f Y:%.2f R:%.2f) - NO CHANGES"),
+		RecordedFrames[0].FrameNumber, PrevRotation.Pitch, PrevRotation.Yaw, PrevRotation.Roll);
+
+	for (int32 i = 1; i < RecordedFrames.Num(); ++i)
 	{
-		UToolMenu* ToolbarMenu = UToolMenus::Get()->ExtendMenu("LevelEditor.LevelEditorToolBar.PlayToolBar");
+		FRotator& CurrentRotation = RecordedFrames[i].Rotation;
+		
+		// Store original values for logging
+		FRotator OriginalRotation = CurrentRotation;
+		
+		double DeltaPitch = CurrentRotation.Pitch - PrevRotation.Pitch;
+		double DeltaYaw = CurrentRotation.Yaw - PrevRotation.Yaw;
+		double DeltaRoll = CurrentRotation.Roll - PrevRotation.Roll;
+
+		bool bSnapDetected = false;
+
+		// Detect snaps
+		if (DeltaPitch > 180.0)
 		{
-			FToolMenuSection& Section = ToolbarMenu->FindOrAddSection("PluginTools");
-			{
-				FToolMenuEntry& Entry = Section.AddEntry(FToolMenuEntry::InitToolBarButton(FCameraRecorderCommands::Get().OpenPluginWindow));
-				Entry.SetCommandList(PluginCommands);
-			}
+			PitchOffset -= 360.0;
+			bSnapDetected = true;
+			UE_LOG(LogTemp, Warning, TEXT("  >>> PITCH SNAP at frame %d! Delta %.2f > 180° -> offset -360°"), 
+				RecordedFrames[i].FrameNumber, DeltaPitch);
 		}
+		else if (DeltaPitch < -180.0)
+		{
+			PitchOffset += 360.0;
+			bSnapDetected = true;
+			UE_LOG(LogTemp, Warning, TEXT("  >>> PITCH SNAP at frame %d! Delta %.2f < -180° -> offset +360°"), 
+				RecordedFrames[i].FrameNumber, DeltaPitch);
+		}
+		
+		if (DeltaYaw > 180.0)
+		{
+			YawOffset -= 360.0;
+			bSnapDetected = true;
+			UE_LOG(LogTemp, Warning, TEXT("  >>> YAW SNAP at frame %d! Delta %.2f > 180° -> offset -360°"), 
+				RecordedFrames[i].FrameNumber, DeltaYaw);
+		}
+		else if (DeltaYaw < -180.0)
+		{
+			YawOffset += 360.0;
+			bSnapDetected = true;
+			UE_LOG(LogTemp, Warning, TEXT("  >>> YAW SNAP at frame %d! Delta %.2f < -180° -> offset +360°"), 
+				RecordedFrames[i].FrameNumber, DeltaYaw);
+		}
+		
+		if (DeltaRoll > 180.0)
+		{
+			RollOffset -= 360.0;
+			bSnapDetected = true;
+			UE_LOG(LogTemp, Warning, TEXT("  >>> ROLL SNAP at frame %d! Delta %.2f > 180° -> offset -360°"), 
+				RecordedFrames[i].FrameNumber, DeltaRoll);
+		}
+		else if (DeltaRoll < -180.0)
+		{
+			RollOffset += 360.0;
+			bSnapDetected = true;
+			UE_LOG(LogTemp, Warning, TEXT("  >>> ROLL SNAP at frame %d! Delta %.2f < -180° -> offset +360°"), 
+				RecordedFrames[i].FrameNumber, DeltaRoll);
+		}
+
+		if (bSnapDetected)
+		{
+			SnapsDetected++;
+		}
+
+		// Apply accumulated offsets DIRECTLY to the rotation
+		CurrentRotation.Pitch += PitchOffset;
+		CurrentRotation.Yaw += YawOffset;
+		CurrentRotation.Roll += RollOffset;
+
+		// Check if ANY offset is active (frame was modified)
+		bool bFrameModified = (PitchOffset != 0.0 || YawOffset != 0.0 || RollOffset != 0.0);
+
+		if (bFrameModified)
+		{
+			FramesCorrected++;
+			
+			UE_LOG(LogTemp, Warning, TEXT("  Frame %d MODIFIED:"), RecordedFrames[i].FrameNumber);
+			UE_LOG(LogTemp, Warning, TEXT("    BEFORE: Pitch=%.2f°  Yaw=%.2f°  Roll=%.2f°"), 
+				OriginalRotation.Pitch, OriginalRotation.Yaw, OriginalRotation.Roll);
+			UE_LOG(LogTemp, Warning, TEXT("    AFTER:  Pitch=%.2f°  Yaw=%.2f°  Roll=%.2f°"), 
+				CurrentRotation.Pitch, CurrentRotation.Yaw, CurrentRotation.Roll);
+			UE_LOG(LogTemp, Warning, TEXT("    CHANGE: Pitch%+.0f°  Yaw%+.0f°  Roll%+.0f°"), 
+				PitchOffset, YawOffset, RollOffset);
+		}
+		else
+		{
+			UE_LOG(LogTemp, Log, TEXT("  Frame %d: No changes (no accumulated offset)"), 
+				RecordedFrames[i].FrameNumber);
+		}
+
+		// CRITICAL: Store the RAW rotation for next iteration's comparison (not corrected!)
+		PrevRotation = OriginalRotation;
 	}
+
+	UE_LOG(LogTemp, Warning, TEXT("===== ROTATION SNAP CORRECTION COMPLETE ====="));
+	UE_LOG(LogTemp, Warning, TEXT("  Snaps detected: %d"), SnapsDetected);
+	UE_LOG(LogTemp, Warning, TEXT("  Frames modified: %d out of %d"), FramesCorrected, RecordedFrames.Num());
+	UE_LOG(LogTemp, Warning, TEXT("  Final accumulated offsets: Pitch=%+.0f° Yaw=%+.0f° Roll=%+.0f°"), 
+		PitchOffset, YawOffset, RollOffset);
 }
 
 bool FCameraRecorderModule::HandleTicker(float DeltaTime)
 {
-	OnTick();
-	return true; // Continue ticking
+	if (bIsRecording)
+	{
+		OnTick();
+	}
+	return true;
 }
 
 void FCameraRecorderModule::OnTick()
@@ -1003,49 +1101,29 @@ void FCameraRecorderModule::OnTick()
 		return;
 	}
 
-	// Get the current Sequencer frame
 	TSharedPtr<ISequencer> Sequencer = ActiveSequencer.Pin();
 	if (!Sequencer.IsValid())
 	{
-		UE_LOG(LogTemp, Warning, TEXT("Sequencer is no longer valid, stopping recording"));
-		StopRecording();
 		return;
 	}
 
-	// Check if sequencer stopped playing
-	if (Sequencer->GetPlaybackStatus() != EMovieScenePlayerStatus::Playing)
-	{
-		UE_LOG(LogTemp, Warning, TEXT("Sequencer paused/stopped, attempting to restart playback"));
-		Sequencer->SetPlaybackStatus(EMovieScenePlayerStatus::Playing);
-		
-		if (Sequencer->GetPlaybackStatus() != EMovieScenePlayerStatus::Playing)
-		{
-			UE_LOG(LogTemp, Error, TEXT("Failed to restart Sequencer playback, stopping recording"));
-			StopRecording();
-			return;
-		}
-	}
-
-	// Get current frame from Sequencer
-	FFrameRate DisplayRate = Sequencer->GetFocusedDisplayRate();
-	FFrameTime SequencerTime = Sequencer->GetGlobalTime().Time;
+	// Get current sequencer time
+	FQualifiedFrameTime CurrentTime = Sequencer->GetGlobalTime();
+	UMovieScene* MovieScene = CurrentLevelSequence.IsValid() ? CurrentLevelSequence->GetMovieScene() : nullptr;
 	
-	if (!CurrentLevelSequence.IsValid())
-	{
-		return;
-	}
-	
-	UMovieScene* MovieScene = CurrentLevelSequence->GetMovieScene();
 	if (!MovieScene)
 	{
 		return;
 	}
-	
-	FFrameRate TickResolution = MovieScene->GetTickResolution();
-	FFrameTime DisplayTime = FFrameRate::TransformTime(SequencerTime, TickResolution, DisplayRate);
-	CurrentFrame = DisplayTime.FloorToFrame().Value;
 
-	// Handle warmup period
+	// Convert from tick resolution to display frames
+	FFrameRate DisplayRate = MovieScene->GetDisplayRate();
+	FFrameRate TickResolution = MovieScene->GetTickResolution();
+	
+	FFrameTime DisplayFrameTime = FFrameRate::TransformTime(CurrentTime.Time, TickResolution, DisplayRate);
+	CurrentFrame = DisplayFrameTime.FloorToFrame().Value;
+
+	// Check if we're still in warmup
 	if (bIsInWarmup)
 	{
 		if (CurrentFrame >= StartFrame)
@@ -1053,96 +1131,79 @@ void FCameraRecorderModule::OnTick()
 			bIsInWarmup = false;
 			UE_LOG(LogTemp, Warning, TEXT("===== Warmup complete at frame %d, starting recording ====="), CurrentFrame);
 		}
-		else
-		{
-			UE_LOG(LogTemp, Log, TEXT("Warmup in progress: frame %d (need to reach %d)"), 
-				CurrentFrame, StartFrame);
-			return;
-		}
+		return;  // Don't record during warmup
 	}
 
-	// Check if we've reached the end frame
-	if (EndFrame > 0 && CurrentFrame >= EndFrame)
+	// Check if we've reached the end
+	if (CurrentFrame > EndFrame)
 	{
-		UE_LOG(LogTemp, Warning, TEXT("===== Reached end frame %d, stopping recording ====="), EndFrame);
-		
-		// If "keyframe on last frame" is enabled and we haven't recorded the exact end frame yet, record it now
+		// Add final keyframe if enabled
 		if (bKeyframeOnLastFrame && LastRecordedFrame != EndFrame)
 		{
-			if (GEditor)
+			if (!GEditor)
 			{
-				ULevelEditorSubsystem* LevelEditorSubsystem = GEditor->GetEditorSubsystem<ULevelEditorSubsystem>();
-				if (LevelEditorSubsystem)
+				return;
+			}
+
+			ULevelEditorSubsystem* LevelEditorSubsystem = GEditor->GetEditorSubsystem<ULevelEditorSubsystem>();
+			if (LevelEditorSubsystem)
+			{
+				AActor* PilotActor = LevelEditorSubsystem->GetPilotLevelActor();
+				ACineCameraActor* CineCam = Cast<ACineCameraActor>(PilotActor);
+				
+				if (CineCam)
 				{
-					AActor* PilotActor = LevelEditorSubsystem->GetPilotLevelActor();
-					if (PilotActor)
-					{
-						ACineCameraActor* CineCam = Cast<ACineCameraActor>(PilotActor);
-						if (CineCam)
-						{
-							FTransform FinalTransform = CineCam->GetActorTransform();
-							RecordedTransforms.Add(TPair<int32, FTransform>(EndFrame, FinalTransform));
-							UE_LOG(LogTemp, Warning, TEXT("Added final keyframe at frame %d"), EndFrame);
-						}
-					}
+					// Store final frame
+					RecordedFrames.Add(FRecordedCameraFrame(EndFrame, CineCam->GetActorTransform()));
+					UE_LOG(LogTemp, Warning, TEXT("Added final keyframe at frame %d"), EndFrame);
 				}
 			}
 		}
 		
-		StopRecording();
+		UE_LOG(LogTemp, Warning, TEXT("===== Reached end frame %d, stopping recording ====="), EndFrame);
+		SetRecording(false);
 		return;
 	}
 
-	// Check if this frame should be recorded based on frame step
-	if ((CurrentFrame - StartFrame) % FrameStep != 0)
+	// Check if we should record this frame
+	bool bShouldRecord = (CurrentFrame >= StartFrame) && 
+	                     (CurrentFrame <= EndFrame) &&
+	                     ((CurrentFrame - StartFrame) % FrameStep == 0) &&
+	                     (CurrentFrame != LastRecordedFrame);
+
+	if (bShouldRecord)
 	{
-		return;
+		if (!GEditor)
+		{
+			return;
+		}
+
+		ULevelEditorSubsystem* LevelEditorSubsystem = GEditor->GetEditorSubsystem<ULevelEditorSubsystem>();
+		if (!LevelEditorSubsystem)
+		{
+			return;
+		}
+
+		AActor* PilotActor = LevelEditorSubsystem->GetPilotLevelActor();
+		ACineCameraActor* CineCam = Cast<ACineCameraActor>(PilotActor);
+		
+		if (CineCam)
+		{
+			// Store the frame
+			RecordedFrames.Add(FRecordedCameraFrame(CurrentFrame, CineCam->GetActorTransform()));
+			
+			int32 KeyframeIndex = RecordedFrames.Num() - 1;
+			UE_LOG(LogTemp, Log, TEXT("[Keyframe %d | Frame %d] Stored transform (will write after recording)"), 
+				KeyframeIndex, CurrentFrame);
+			
+			LastRecordedFrame = CurrentFrame;
+		}
 	}
+}
 
-	// Prevent recording the same frame multiple times
-	if (CurrentFrame == LastRecordedFrame)
-	{
-		return;
-	}
-
-	if (!GEditor)
-	{
-		return;
-	}
-
-	ULevelEditorSubsystem* LevelEditorSubsystem = GEditor->GetEditorSubsystem<ULevelEditorSubsystem>();
-	if (!LevelEditorSubsystem)
-	{
-		return;
-	}
-
-	AActor* PilotActor = LevelEditorSubsystem->GetPilotLevelActor();
-	if (!PilotActor)
-	{
-		return;
-	}
-
-	ACineCameraActor* CineCam = Cast<ACineCameraActor>(PilotActor);
-	if (!CineCam)
-	{
-		return;
-	}
-
-	// Store the recording camera reference
-	if (!RecordingCamera.IsValid())
-	{
-		RecordingCamera = CineCam;
-	}
-
-	// CHANGED: Store the transform instead of recording immediately
-	FTransform CurrentTransform = CineCam->GetActorTransform();
-	RecordedTransforms.Add(TPair<int32, FTransform>(CurrentFrame, CurrentTransform));
-	
-	LastRecordedFrame = CurrentFrame;
-
-	const int32 KeyframeNumber = (CurrentFrame - StartFrame) / FrameStep;
-	UE_LOG(LogTemp, Log, TEXT("[Keyframe %d | Frame %d] Stored transform (will write after recording)"),
-		KeyframeNumber, CurrentFrame);
+void FCameraRecorderModule::RegisterMenus()
+{
+	// Empty implementation - menus can be added here later if needed
 }
 
 #undef LOCTEXT_NAMESPACE
