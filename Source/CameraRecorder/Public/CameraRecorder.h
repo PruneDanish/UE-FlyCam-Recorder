@@ -59,7 +59,7 @@ public:
 	void PluginButtonClicked();
 
 	/** Called by widget to set recording state */
-	void SetRecording(bool bInIsRecording);
+	bool SetRecording(bool bInIsRecording);  // Changed to return bool
 	bool IsRecording() const { return bIsRecording; }
 
 	/** Frame stepping */

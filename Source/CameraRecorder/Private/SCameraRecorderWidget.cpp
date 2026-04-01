@@ -466,12 +466,19 @@ void SCameraRecorderWidget::OnEndFrameChanged(int32 NewValue)
 
 FReply SCameraRecorderWidget::OnRecordButtonClicked()
 {
-	bIsRecording = !bIsRecording;
+	bool bNewState = !bIsRecording;
 
-	// Notify the module
+	// Notify the module and check if it succeeded
 	if (Module)
 	{
-		Module->SetRecording(bIsRecording);
+		bool bSuccess = Module->SetRecording(bNewState);
+		
+		// Only update UI state if the operation succeeded
+		if (bSuccess)
+		{
+			bIsRecording = bNewState;
+		}
+		// If it failed, button stays in its current state
 	}
 
 	return FReply::Handled();

@@ -353,20 +353,21 @@ void FCameraRecorderModule::ClearExistingKeyframes(const FGuid& CameraBinding)
 	}
 }
 
-void FCameraRecorderModule::SetRecording(bool bInIsRecording)
+bool FCameraRecorderModule::SetRecording(bool bInIsRecording)
 {
-	bIsRecording = bInIsRecording;
-	
 	if (bInIsRecording)
 	{
-		// Reset tracking variables
-		bIsInWarmup = WarmupFrames > 0;
-		LastRecordedFrame = -1;
-		RecordedFrames.Empty(); // CHANGED: Use new array
+		// DON'T set any state variables until validation passes!
 		
-		WarmupStartFrame = StartFrame - WarmupFrames;
+		int32 TempWarmupStartFrame = StartFrame - WarmupFrames;
 		
 		ULevelSequence* NewSequence = GetOrCreateLevelSequence();
+		
+		if (!NewSequence)
+		{
+			UE_LOG(LogTemp, Error, TEXT("Failed to get or create Level Sequence!"));
+			return false;  // FAILED - don't change any state
+		}
 		
 		// CRITICAL: If the sequence changed, invalidate the cached binding
 		if (CurrentLevelSequence.Get() != NewSequence)
@@ -375,49 +376,31 @@ void FCameraRecorderModule::SetRecording(bool bInIsRecording)
 			CachedCameraBinding.Invalidate();
 		}
 		
-		CurrentLevelSequence = NewSequence;
-		
-		if (!CurrentLevelSequence.IsValid())
-		{
-			UE_LOG(LogTemp, Error, TEXT("Failed to get or create Level Sequence!"));
-			bIsRecording = false;
-			bIsInWarmup = false;
-			return;
-		}
-		
 		if (!GEditor)
 		{
 			UE_LOG(LogTemp, Error, TEXT("GEditor is null!"));
-			bIsRecording = false;
-			bIsInWarmup = false;
-			return;
+			return false;  // FAILED
 		}
 
 		ULevelEditorSubsystem* LevelEditorSubsystem = GEditor->GetEditorSubsystem<ULevelEditorSubsystem>();
 		if (!LevelEditorSubsystem)
 		{
 			UE_LOG(LogTemp, Error, TEXT("LevelEditorSubsystem is null!"));
-			bIsRecording = false;
-			bIsInWarmup = false;
-			return;
+			return false;  // FAILED
 		}
 
 		AActor* PilotActor = LevelEditorSubsystem->GetPilotLevelActor();
 		if (!PilotActor)
 		{
 			UE_LOG(LogTemp, Error, TEXT("No piloted actor found! Please pilot a camera before recording."));
-			bIsRecording = false;
-			bIsInWarmup = false;
-			return;
+			return false;  // FAILED - button won't change
 		}
 
 		ACineCameraActor* CineCam = Cast<ACineCameraActor>(PilotActor);
 		if (!CineCam)
 		{
 			UE_LOG(LogTemp, Error, TEXT("Piloted actor is not a CineCameraActor!"));
-			bIsRecording = false;
-			bIsInWarmup = false;
-			return;
+			return false;  // FAILED
 		}
 
 		// STEP 1: Capture the camera's current transform BEFORE doing anything
@@ -431,10 +414,16 @@ void FCameraRecorderModule::SetRecording(bool bInIsRecording)
 		if (!CameraBinding.IsValid())
 		{
 			UE_LOG(LogTemp, Error, TEXT("Failed to get camera binding!"));
-			bIsRecording = false;
-			bIsInWarmup = false;
-			return;
+			return false;  // FAILED
 		}
+
+		// ===== ALL VALIDATION PASSED - NOW set the state variables =====
+		bIsRecording = true;
+		bIsInWarmup = WarmupFrames > 0;
+		LastRecordedFrame = -1;
+		RecordedFrames.Empty();
+		WarmupStartFrame = TempWarmupStartFrame;
+		CurrentLevelSequence = NewSequence;
 
 		// Clear existing keyframes in the recording range
 		ClearExistingKeyframes(CameraBinding);
@@ -486,10 +475,18 @@ void FCameraRecorderModule::SetRecording(bool bInIsRecording)
 		}
 		UE_LOG(LogTemp, Warning, TEXT("===== Will record from frame %d to %d (step: %d) ====="), StartFrame, EndFrame, FrameStep);
 		UE_LOG(LogTemp, Warning, TEXT("===== Recording to sequence: %s ====="), *CurrentLevelSequence->GetName());
+		
+		return true;  // SUCCESS
 	}
 	else
 	{
-		StopRecording();
+		// Only stop if we're actually recording
+		if (bIsRecording)
+		{
+			StopRecording();
+			return true;
+		}
+		return false;  // Wasn't recording, nothing to do
 	}
 }
 
