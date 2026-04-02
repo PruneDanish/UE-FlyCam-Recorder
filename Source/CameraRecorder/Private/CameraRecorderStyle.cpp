@@ -35,13 +35,14 @@ FName FCameraRecorderStyle::GetStyleSetName()
 
 const FVector2D Icon16x16(16.0f, 16.0f);
 const FVector2D Icon20x20(20.0f, 20.0f);
+const FVector2D Icon40x40(40.0f, 40.0f);
 
 TSharedRef< FSlateStyleSet > FCameraRecorderStyle::Create()
 {
 	TSharedRef< FSlateStyleSet > Style = MakeShareable(new FSlateStyleSet("CameraRecorderStyle"));
 	Style->SetContentRoot(IPluginManager::Get().FindPlugin("CameraRecorder")->GetBaseDir() / TEXT("Resources"));
 
-	Style->Set("CameraRecorder.OpenPluginWindow", new IMAGE_BRUSH_SVG(TEXT("PlaceholderButtonIcon"), Icon20x20));
+	Style->Set("CameraRecorder.OpenPluginWindow", new IMAGE_BRUSH(TEXT("ButtonIcon40"), Icon40x40));
 
 	return Style;
 }

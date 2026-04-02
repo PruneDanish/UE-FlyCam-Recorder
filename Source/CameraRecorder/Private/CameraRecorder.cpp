@@ -551,7 +551,7 @@ void FCameraRecorderModule::StopRecording()
 			RecordedFrames.Empty();
 		}
 	}
-	
+
 	// Notify widget to update button state
 	if (TSharedPtr<SCameraRecorderWidget> Widget = CameraRecorderWidget.Pin())
 	{
@@ -1203,7 +1203,19 @@ void FCameraRecorderModule::OnTick()
 
 void FCameraRecorderModule::RegisterMenus()
 {
-	// Empty implementation - menus can be added here later if needed
+	// Owner will be used for cleanup in call to UToolMenus::UnregisterOwner
+	FToolMenuOwnerScoped OwnerScoped(this);
+
+	{
+		UToolMenu* ToolbarMenu = UToolMenus::Get()->ExtendMenu("LevelEditor.LevelEditorToolBar.PlayToolBar");
+		{
+			FToolMenuSection& Section = ToolbarMenu->FindOrAddSection("PluginTools");
+			{
+				FToolMenuEntry& Entry = Section.AddEntry(FToolMenuEntry::InitToolBarButton(FCameraRecorderCommands::Get().OpenPluginWindow));
+				Entry.SetCommandList(PluginCommands);
+			}
+		}
+	}
 }
 
 #undef LOCTEXT_NAMESPACE
