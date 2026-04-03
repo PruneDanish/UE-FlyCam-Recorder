@@ -891,6 +891,14 @@ void FCameraRecorderModule::OnTick()
 		return;
 	}
 
+	// ADDED: Check if sequencer has stopped playing (reached the end)
+	if (Sequencer->GetPlaybackStatus() != EMovieScenePlayerStatus::Playing)
+	{
+		UE_LOG(LogTemp, Warning, TEXT("Sequencer stopped playing, ending recording"));
+		SetRecording(false);
+		return;
+	}
+
 	// Get current sequencer time
 	FQualifiedFrameTime CurrentTime = Sequencer->GetGlobalTime();
 	UMovieScene* MovieScene = CurrentLevelSequence.IsValid() ? CurrentLevelSequence->GetMovieScene() : nullptr;
@@ -907,7 +915,7 @@ void FCameraRecorderModule::OnTick()
 	FFrameTime DisplayFrameTime = FFrameRate::TransformTime(CurrentTime.Time, TickResolution, DisplayRate);
 	CurrentFrame = DisplayFrameTime.FloorToFrame().Value;
 
-	// Check if we've reached the end
+	// Check if we've reached the end (this handles manual stop or if user changes end frame during recording)
 	if (CurrentFrame > EndFrame)
 	{
 		// Add final keyframe if enabled
