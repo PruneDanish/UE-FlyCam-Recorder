@@ -137,8 +137,6 @@ void FCameraRecorderModule::StartCountdown()
 	bIsInCountdown = true;
 	CountdownTimer = 3.0f;
 	CountdownSecondsRemaining = 3;
-	
-	UE_LOG(LogTemp, Warning, TEXT("===== Starting 3-second countdown ====="));
 }
 
 void FCameraRecorderModule::UpdateCountdown(float DeltaTime)
@@ -155,7 +153,6 @@ void FCameraRecorderModule::UpdateCountdown(float DeltaTime)
 	if (NewSecondsRemaining != CountdownSecondsRemaining)
 	{
 		CountdownSecondsRemaining = FMath::Max(0, NewSecondsRemaining);
-		UE_LOG(LogTemp, Warning, TEXT("Countdown: %d..."), CountdownSecondsRemaining);
 	}
 	
 	// Countdown finished!
@@ -163,8 +160,6 @@ void FCameraRecorderModule::UpdateCountdown(float DeltaTime)
 	{
 		bIsInCountdown = false;
 		CountdownSecondsRemaining = 0;
-		
-		UE_LOG(LogTemp, Warning, TEXT("===== Countdown complete! Starting recording ====="));
 		
 		// NOW start the sequencer playback and actual recording
 		StartSequencerPlayback();
@@ -176,7 +171,7 @@ void FCameraRecorderModule::StartSequencerPlayback()
 	TSharedPtr<ISequencer> Sequencer = ActiveSequencer.Pin();
 	if (!Sequencer.IsValid())
 	{
-		UE_LOG(LogTemp, Error, TEXT("Failed to get Sequencer for playback!"));
+		UE_LOG(LogTemp, Error, TEXT("FlyCam Recorder: Failed to get Sequencer for playback!"));
 		return;
 	}
 
@@ -236,8 +231,6 @@ void FCameraRecorderModule::StartSequencerPlayback()
 			
 			// Just start playback - playhead is already at StartFrame from SetRecording()
 			Sequencer->SetPlaybackStatus(EMovieScenePlayerStatus::Playing);
-			
-			UE_LOG(LogTemp, Warning, TEXT("===== Started Sequencer playback from frame %d ====="), StartFrame);
 		}
 	}
 }
@@ -373,7 +366,7 @@ void FCameraRecorderModule::SetRecording(bool bInIsRecording)
 		
 		if (!CurrentLevelSequence.IsValid())
 		{
-			UE_LOG(LogTemp, Error, TEXT("Failed to get or create Level Sequence!"));
+			UE_LOG(LogTemp, Error, TEXT("FlyCam Recorder: Failed to get or create Level Sequence!"));
 			bIsRecording = false;
 			bWaitingForViewportClick = false;
 			return;
@@ -381,7 +374,7 @@ void FCameraRecorderModule::SetRecording(bool bInIsRecording)
 		
 		if (!GEditor)
 		{
-			UE_LOG(LogTemp, Error, TEXT("GEditor is null!"));
+			UE_LOG(LogTemp, Error, TEXT("FlyCam Recorder: GEditor is null!"));
 			bIsRecording = false;
 			bWaitingForViewportClick = false;
 			return;
@@ -390,7 +383,7 @@ void FCameraRecorderModule::SetRecording(bool bInIsRecording)
 		ULevelEditorSubsystem* LevelEditorSubsystem = GEditor->GetEditorSubsystem<ULevelEditorSubsystem>();
 		if (!LevelEditorSubsystem)
 		{
-			UE_LOG(LogTemp, Error, TEXT("LevelEditorSubsystem is null!"));
+			UE_LOG(LogTemp, Error, TEXT("FlyCam Recorder: LevelEditorSubsystem is null!"));
 			bIsRecording = false;
 			bWaitingForViewportClick = false;
 			return;
@@ -399,7 +392,7 @@ void FCameraRecorderModule::SetRecording(bool bInIsRecording)
 		AActor* PilotActor = LevelEditorSubsystem->GetPilotLevelActor();
 		if (!PilotActor)
 		{
-			UE_LOG(LogTemp, Error, TEXT("No piloted actor found! Please pilot a camera before recording."));
+			UE_LOG(LogTemp, Error, TEXT("FlyCam Recorder: No piloted actor found! Please pilot a camera before recording."));
 			bIsRecording = false;
 			bWaitingForViewportClick = false;
 			return;
@@ -408,7 +401,7 @@ void FCameraRecorderModule::SetRecording(bool bInIsRecording)
 		ACineCameraActor* CineCam = Cast<ACineCameraActor>(PilotActor);
 		if (!CineCam)
 		{
-			UE_LOG(LogTemp, Error, TEXT("Piloted actor is not a CineCameraActor!"));
+			UE_LOG(LogTemp, Error, TEXT("FlyCam Recorder: Piloted actor is not a CineCameraActor!"));
 			bIsRecording = false;
 			bWaitingForViewportClick = false;
 			return;
@@ -419,15 +412,12 @@ void FCameraRecorderModule::SetRecording(bool bInIsRecording)
 
 		// STEP 1: Capture the camera's transform FIRST, before doing anything that causes evaluation
 		CapturedCameraTransform = CineCam->GetActorTransform();
-		UE_LOG(LogTemp, Warning, TEXT("Captured camera transform: Loc=%s, Rot=%s"),
-			*CapturedCameraTransform.GetValue().GetLocation().ToString(),
-			*CapturedCameraTransform.GetValue().Rotator().ToString());
 
 		// Get or create the camera binding
 		FGuid CameraBinding = GetOrCreateCameraBinding(CineCam);
 		if (!CameraBinding.IsValid())
 		{
-			UE_LOG(LogTemp, Error, TEXT("Failed to get camera binding!"));
+			UE_LOG(LogTemp, Error, TEXT("FlyCam Recorder: Failed to get camera binding!"));
 			bIsRecording = false;
 			bWaitingForViewportClick = false;
 			return;
@@ -479,10 +469,7 @@ void FCameraRecorderModule::SetRecording(bool bInIsRecording)
 		
 		// STEP 4: Restore the captured transform (fixes any snap from disabling track or moving playhead)
 		CineCam->SetActorTransform(CapturedCameraTransform.GetValue());
-		UE_LOG(LogTemp, Warning, TEXT("Restored camera transform after setup"));
 		
-		UE_LOG(LogTemp, Warning, TEXT("===== Waiting for viewport click to start countdown... ====="));
-		UE_LOG(LogTemp, Warning, TEXT("===== Will record from frame %d to %d (step: %d) ====="), StartFrame, EndFrame, FrameStep);
 	}
 	else
 	{
@@ -528,13 +515,12 @@ void FCameraRecorderModule::StopRecording()
 		if (RecordedFrames.Num() > 0)
 		{
 			ApplyRotationSnapCorrection();
-			
+
 			for (const FRecordedCameraFrame& Frame : RecordedFrames)
 			{
 				RecordCameraKeyframeWithRotation(Frame.Location, Frame.Rotation, Frame.FrameNumber);
 			}
-			
-			UE_LOG(LogTemp, Warning, TEXT("Successfully wrote %d keyframes!"), RecordedFrames.Num());
+
 			RecordedFrames.Empty();
 		}
 	}
@@ -544,8 +530,6 @@ void FCameraRecorderModule::StopRecording()
 	{
 		Widget->OnRecordingStopped();
 	}
-	
-	UE_LOG(LogTemp, Warning, TEXT("===== Recording stopped at frame %d ====="), CurrentFrame);
 	
 	RecordingCamera.Reset();
 	ActiveSequencer.Reset();
@@ -797,6 +781,7 @@ void FCameraRecorderModule::ApplyRotationSnapCorrection()
 	double PitchOffset = 0.0;
 	double YawOffset = 0.0;
 	double RollOffset = 0.0;
+	int32 CorrectionsApplied = 0;
 
 	FRotator PrevRotation = RecordedFrames[0].Rotation;
 
@@ -810,31 +795,44 @@ void FCameraRecorderModule::ApplyRotationSnapCorrection()
 		double DeltaRoll = CurrentRotation.Roll - PrevRotation.Roll;
 
 		// Detect snaps
+		bool bCorrected = false;
+		
 		if (DeltaPitch > 180.0)
 		{
 			PitchOffset -= 360.0;
+			bCorrected = true;
 		}
 		else if (DeltaPitch < -180.0)
 		{
 			PitchOffset += 360.0;
+			bCorrected = true;
 		}
 		
 		if (DeltaYaw > 180.0)
 		{
 			YawOffset -= 360.0;
+			bCorrected = true;
 		}
 		else if (DeltaYaw < -180.0)
 		{
 			YawOffset += 360.0;
+			bCorrected = true;
 		}
 		
 		if (DeltaRoll > 180.0)
 		{
 			RollOffset -= 360.0;
+			bCorrected = true;
 		}
 		else if (DeltaRoll < -180.0)
 		{
 			RollOffset += 360.0;
+			bCorrected = true;
+		}
+
+		if (bCorrected)
+		{
+			CorrectionsApplied++;
 		}
 
 		// Apply accumulated offsets
@@ -843,6 +841,11 @@ void FCameraRecorderModule::ApplyRotationSnapCorrection()
 		CurrentRotation.Roll += RollOffset;
 
 		PrevRotation = OriginalRotation;
+	}
+	
+	if (CorrectionsApplied > 0)
+	{
+		UE_LOG(LogTemp, Warning, TEXT("FlyCam Recorder: Rotation snap correction fixed %d rotation snap(s) across %d frames"), CorrectionsApplied, RecordedFrames.Num());
 	}
 }
 
@@ -865,7 +868,6 @@ bool FCameraRecorderModule::HandleTicker(float DeltaTime)
 			{
 				if (FSlateApplication::Get().GetPressedMouseButtons().Num() > 0)
 				{
-					UE_LOG(LogTemp, Warning, TEXT("===== Viewport clicked! ====="));
 					StartCountdown();
 				}
 			}
@@ -894,7 +896,6 @@ void FCameraRecorderModule::OnTick()
 	// ADDED: Check if sequencer has stopped playing (reached the end)
 	if (Sequencer->GetPlaybackStatus() != EMovieScenePlayerStatus::Playing)
 	{
-		UE_LOG(LogTemp, Warning, TEXT("Sequencer stopped playing, ending recording"));
 		SetRecording(false);
 		return;
 	}
