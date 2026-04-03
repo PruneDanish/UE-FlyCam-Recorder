@@ -43,7 +43,7 @@ void FCameraRecorderModule::StartupModule()
 	UToolMenus::RegisterStartupCallback(FSimpleMulticastDelegate::FDelegate::CreateRaw(this, &FCameraRecorderModule::RegisterMenus));
 	
 	FGlobalTabmanager::Get()->RegisterNomadTabSpawner(CameraRecorderTabName, FOnSpawnTab::CreateRaw(this, &FCameraRecorderModule::OnSpawnPluginTab))
-		.SetDisplayName(LOCTEXT("FCameraRecorderTabTitle", "CameraRecorder"))
+		.SetDisplayName(LOCTEXT("FCameraRecorderTabTitle", "FlyCam Recorder"))
 		.SetMenuType(ETabSpawnerMenuType::Hidden);
 
 	// Register tick delegate

@@ -6,7 +6,7 @@
 
 void FCameraRecorderCommands::RegisterCommands()
 {
-	UI_COMMAND(OpenPluginWindow, "CameraRecorder", "Bring up CameraRecorder window", EUserInterfaceActionType::Button, FInputChord());
+	UI_COMMAND(OpenPluginWindow, "FlyCam Recorder", "Bring up FlyCam Recorder window", EUserInterfaceActionType::Button, FInputChord());
 }
 
 #undef LOCTEXT_NAMESPACE

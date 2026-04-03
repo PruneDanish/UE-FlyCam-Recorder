@@ -44,7 +44,7 @@ void SCameraRecorderWidget::Construct(const FArguments& InArgs)
 		.Padding(8.f)
 		[
 			SNew(STextBlock)
-				.Text(LOCTEXT("Title", "Camera Recorder"))
+				.Text(LOCTEXT("Title", "FlyCam Recorder"))
 				.Font(FCoreStyle::GetDefaultFontStyle("Bold", 14))
 		]
 
