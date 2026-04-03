@@ -25,7 +25,7 @@ enum class ECameraRecorderInterpMode : uint8
 	Constant
 };
 
-// NEW: Structure to store transform with unwrapped euler angles
+// Structure to store transform with unwrapped euler angles
 struct FRecordedCameraFrame
 {
 	int32 FrameNumber;
@@ -73,10 +73,6 @@ public:
 	int32 GetEndFrame() const { return EndFrame; }
 	int32 GetCurrentFrame() const { return CurrentFrame; }
 
-	/** Warmup frames */
-	void SetWarmupFrames(int32 InWarmupFrames) { WarmupFrames = FMath::Max(0, InWarmupFrames); }
-	int32 GetWarmupFrames() const { return WarmupFrames; }
-
 	/** Interpolation mode */
 	void SetInterpMode(ECameraRecorderInterpMode InMode) { InterpMode = InMode; }
 	ECameraRecorderInterpMode GetInterpMode() const { return InterpMode; }
@@ -89,8 +85,10 @@ public:
 	void SetSnapRotationCorrection(bool bInSnapRotationCorrection) { bSnapRotationCorrection = bInSnapRotationCorrection; }
 	bool GetSnapRotationCorrection() const { return bSnapRotationCorrection; }
 
-	/** Get warmup state */
-	bool IsInWarmup() const { return bIsInWarmup; }
+	/** Get countdown state */
+bool IsInCountdown() const { return bIsInCountdown; }
+int32 GetCountdownSeconds() const { return CountdownSecondsRemaining; }
+bool IsWaitingForClick() const { return bWaitingForViewportClick; }
 
 private:
 
@@ -102,26 +100,32 @@ private:
 	void StopRecording();
 	void StartSequencerPlayback();
 	TSharedPtr<ISequencer> GetActiveSequencer();
+	void StartCountdown();
+	void UpdateCountdown(float DeltaTime);
 
 	void RecordCameraKeyframe(ACineCameraActor* CineCam, int32 FrameNumber);
-	void RecordCameraKeyframeWithRotation(const FVector& Location, const FRotator& Rotation, int32 FrameNumber); // NEW
+	void RecordCameraKeyframeWithRotation(const FVector& Location, const FRotator& Rotation, int32 FrameNumber);
 	ULevelSequence* GetOrCreateLevelSequence();
 	FGuid GetOrCreateCameraBinding(ACineCameraActor* CineCam);
 	void ClearExistingKeyframes(const FGuid& CameraBinding);
-	void ApplyRotationSnapCorrection(); // NEW: Post-process recorded transforms
+	void ApplyRotationSnapCorrection();
 
 	bool bIsRecording = false;
-	bool bIsInWarmup = false;
 	int32 FrameStep = 1;
 	int32 StartFrame = 0;
 	int32 EndFrame = 120;
-	int32 WarmupFrames = 30;
 	int32 CurrentFrame = 0;
 	int32 LastRecordedFrame = -1;
-	int32 WarmupStartFrame = 0;
 	ECameraRecorderInterpMode InterpMode = ECameraRecorderInterpMode::Auto;
 	bool bKeyframeOnLastFrame = true;
-	bool bSnapRotationCorrection = true; // NEW: Enable by default
+	bool bSnapRotationCorrection = true;
+	
+	// Click to start mode (always enabled now)
+	bool bWaitingForViewportClick = false;
+	bool bIsInCountdown = false;
+	float CountdownTimer = 0.0f;
+	int32 CountdownSecondsRemaining = 3;
+	TOptional<FTransform> CapturedCameraTransform; // Store the captured transform
 	
 	TSharedPtr<class FUICommandList> PluginCommands;
 	TWeakPtr<SCameraRecorderWidget> CameraRecorderWidget;

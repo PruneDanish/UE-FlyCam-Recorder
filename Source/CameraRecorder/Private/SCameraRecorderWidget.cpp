@@ -21,8 +21,7 @@ void SCameraRecorderWidget::Construct(const FArguments& InArgs)
 	{
 		Module->SetStartFrame(0);
 		Module->SetEndFrame(120);
-		Module->SetFrameStep(10);  // Changed default to 10
-		Module->SetWarmupFrames(30);
+		Module->SetFrameStep(10);
 		Module->SetInterpMode(ECameraRecorderInterpMode::Auto);
 		Module->SetKeyframeOnLastFrame(true);
 	}
@@ -128,37 +127,8 @@ void SCameraRecorderWidget::Construct(const FArguments& InArgs)
 				SAssignNew(FrameStepSpinBox, SSpinBox<int32>)
 					.MinValue(1)
 					.MaxValue(100)
-					.Value(10)  // Changed default to 10
+					.Value(10)
 					.OnValueChanged(this, &SCameraRecorderWidget::OnFrameStepChanged)
-			]
-		]
-
-		// Warmup Frames Input
-		+ SVerticalBox::Slot()
-		.AutoHeight()
-		.Padding(8.f)
-		[
-			SNew(SHorizontalBox)
-			
-			+ SHorizontalBox::Slot()
-			.AutoWidth()
-			.VAlign(VAlign_Center)
-			.Padding(0.f, 0.f, 8.f, 0.f)
-			[
-				SNew(STextBlock)
-					.Text(LOCTEXT("WarmupFramesLabel", "Warmup Frames:"))
-					.MinDesiredWidth(100.f)
-					.ToolTipText(LOCTEXT("WarmupFramesTooltip", "Number of frames to play before recording starts"))
-			]
-			
-			+ SHorizontalBox::Slot()
-			.FillWidth(1.0f)
-			[
-				SAssignNew(WarmupFramesSpinBox, SSpinBox<int32>)
-					.MinValue(0)
-					.MaxValue(1000)
-					.Value(30)
-					.OnValueChanged(this, &SCameraRecorderWidget::OnWarmupFramesChanged)
 			]
 		]
 
@@ -236,9 +206,9 @@ void SCameraRecorderWidget::Construct(const FArguments& InArgs)
 			.Padding(0.f, 0.f, 8.f, 0.f)
 			[
 				SNew(STextBlock)
-					.Text(FText::FromString("Rotation Snap Correction:"))
+					.Text(LOCTEXT("SnapRotationCorrectionLabel", "Rotation Snap Correction:"))
 					.MinDesiredWidth(100.f)
-					.ToolTipText(FText::FromString("Automatically detect and fix rotation snaps/wraps"))
+					.ToolTipText(LOCTEXT("SnapRotationCorrectionTooltip", "Automatically detect and fix rotation snaps/wraps"))
 			]
 			
 			+ SHorizontalBox::Slot()
@@ -246,9 +216,8 @@ void SCameraRecorderWidget::Construct(const FArguments& InArgs)
 			.VAlign(VAlign_Center)
 			[
 				SAssignNew(SnapRotationCorrectionCheckBox, SCheckBox)
-					.IsChecked(Module ? (Module->GetSnapRotationCorrection() ? ECheckBoxState::Checked : ECheckBoxState::Unchecked) : ECheckBoxState::Unchecked)
+					.IsChecked(ECheckBoxState::Checked)
 					.OnCheckStateChanged(this, &SCameraRecorderWidget::OnSnapRotationCorrectionChanged)
-					.ToolTipText(FText::FromString("Automatically detect and fix rotation snaps/wraps"))
 			]
 		]
 
@@ -260,17 +229,7 @@ void SCameraRecorderWidget::Construct(const FArguments& InArgs)
 			SNew(STextBlock)
 				.Text(this, &SCameraRecorderWidget::GetStatusText)
 				.Font(FCoreStyle::GetDefaultFontStyle("Bold", 10))
-				.ColorAndOpacity_Lambda([this]()
-					{
-						if (!Module) return FSlateColor(FLinearColor::White);
-						
-						if (Module->IsInWarmup())
-							return FSlateColor(FLinearColor::Yellow);
-						else if (Module->IsRecording())
-							return FSlateColor(FLinearColor::Red);
-						else
-							return FSlateColor(FLinearColor::White);
-					})
+				.ColorAndOpacity(this, &SCameraRecorderWidget::GetStatusColor)  // CHANGED: Use attribute instead of lambda
 		]
 
 		// Current Frame Display
@@ -333,17 +292,12 @@ void SCameraRecorderWidget::Construct(const FArguments& InArgs)
 		.Padding(8.f)
 		[
 			SNew(SBox)
-				.HeightOverride(45.f)  // 1.5x the default height (~40px -> 60px)
+				.HeightOverride(45.f)
 			[
 				SNew(SButton)
-					.HAlign(HAlign_Center)  // Center-align button content
-					.VAlign(VAlign_Center)  // Vertically center the text
-					.Text_Lambda([this]()
-						{
-							return bIsRecording ?
-								LOCTEXT("StopRecording", "Stop Recording") :
-								LOCTEXT("Record", "Record");
-						})
+					.HAlign(HAlign_Center)
+					.VAlign(VAlign_Center)
+					.Text(this, &SCameraRecorderWidget::GetRecordButtonText)  // CHANGED: Use attribute instead of lambda
 					.OnClicked(this, &SCameraRecorderWidget::OnRecordButtonClicked)
 			]
 		]
@@ -400,12 +354,17 @@ FText SCameraRecorderWidget::GetStatusText() const
 		return LOCTEXT("StatusIdle", "Status: Idle");
 	}
 
-	if (Module->IsInWarmup())
+	// Check for waiting for viewport click
+	if (Module->IsWaitingForClick())
+	{
+		return LOCTEXT("StatusWaitingForClick", "Status: Click viewport to start countdown...");
+	}
+	// Check for countdown state
+	else if (Module->IsInCountdown())
 	{
 		return FText::Format(
-			LOCTEXT("StatusWarmup", "Status: Warming up... ({0}/{1})"),
-			FText::AsNumber(Module->GetCurrentFrame() - (Module->GetStartFrame() - Module->GetWarmupFrames())),
-			FText::AsNumber(Module->GetWarmupFrames())
+			LOCTEXT("StatusCountdown", "Status: Starting in {0}..."),
+			FText::AsNumber(Module->GetCountdownSeconds())
 		);
 	}
 	else if (Module->IsRecording())
@@ -418,22 +377,12 @@ FText SCameraRecorderWidget::GetStatusText() const
 	}
 }
 
-void SCameraRecorderWidget::OnWarmupFramesChanged(int32 NewValue)
-{
-	if (Module)
-	{
-		Module->SetWarmupFrames(NewValue);
-		UE_LOG(LogTemp, Log, TEXT("Warmup Frames changed to: %d"), NewValue);
-	}
-}
-
 void SCameraRecorderWidget::OnKeyframeOnLastFrameChanged(ECheckBoxState NewState)
 {
 	if (Module)
 	{
 		bool bChecked = (NewState == ECheckBoxState::Checked);
 		Module->SetKeyframeOnLastFrame(bChecked);
-		UE_LOG(LogTemp, Log, TEXT("Keyframe on Last Frame: %s"), bChecked ? TEXT("ON") : TEXT("OFF"));
 	}
 }
 
@@ -442,7 +391,6 @@ void SCameraRecorderWidget::OnFrameStepChanged(int32 NewValue)
 	if (Module)
 	{
 		Module->SetFrameStep(NewValue);
-		UE_LOG(LogTemp, Log, TEXT("Frame Step changed to: %d"), NewValue);
 	}
 }
 
@@ -451,7 +399,6 @@ void SCameraRecorderWidget::OnStartFrameChanged(int32 NewValue)
 	if (Module)
 	{
 		Module->SetStartFrame(NewValue);
-		UE_LOG(LogTemp, Log, TEXT("Start Frame changed to: %d"), NewValue);
 	}
 }
 
@@ -460,7 +407,6 @@ void SCameraRecorderWidget::OnEndFrameChanged(int32 NewValue)
 	if (Module)
 	{
 		Module->SetEndFrame(NewValue);
-		UE_LOG(LogTemp, Log, TEXT("End Frame changed to: %d"), NewValue);
 	}
 }
 
@@ -511,7 +457,6 @@ void SCameraRecorderWidget::OnInterpSelectionChanged(TSharedPtr<ECameraRecorderI
 	if (Module && NewSelection.IsValid())
 	{
 		Module->SetInterpMode(*NewSelection);
-		UE_LOG(LogTemp, Log, TEXT("Interpolation mode changed to: %d"), (int32)*NewSelection);
 	}
 }
 
@@ -545,6 +490,38 @@ void SCameraRecorderWidget::OnSnapRotationCorrectionChanged(ECheckBoxState NewSt
 	{
 		Module->SetSnapRotationCorrection(NewState == ECheckBoxState::Checked);
 	}
+}
+
+FSlateColor SCameraRecorderWidget::GetStatusColor() const
+{
+	if (!Module)
+	{
+		return FSlateColor(FLinearColor::White);
+	}
+	
+	if (Module->IsWaitingForClick())
+	{
+		return FSlateColor(FLinearColor::Yellow);
+	}
+	else if (Module->IsInCountdown())
+	{
+		return FSlateColor(FLinearColor::Yellow);
+	}
+	else if (Module->IsRecording())
+	{
+		return FSlateColor(FLinearColor::Red);
+	}
+	else
+	{
+		return FSlateColor(FLinearColor::White);
+	}
+}
+
+FText SCameraRecorderWidget::GetRecordButtonText() const
+{
+	return bIsRecording ?
+		LOCTEXT("StopRecording", "Stop Recording") :
+		LOCTEXT("Record", "Record");
 }
 
 #undef LOCTEXT_NAMESPACE

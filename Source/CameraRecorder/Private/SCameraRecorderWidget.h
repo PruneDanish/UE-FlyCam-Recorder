@@ -30,9 +30,8 @@ private:
 	void OnFrameStepChanged(int32 NewValue);
 	void OnStartFrameChanged(int32 NewValue);
 	void OnEndFrameChanged(int32 NewValue);
-	void OnWarmupFramesChanged(int32 NewValue);
 	void OnKeyframeOnLastFrameChanged(ECheckBoxState NewState);
-	void OnSnapRotationCorrectionChanged(ECheckBoxState NewState); // NEW
+	void OnSnapRotationCorrectionChanged(ECheckBoxState NewState);
 	
 	// Interpolation dropdown
 	TSharedRef<SWidget> OnGenerateInterpWidget(TSharedPtr<ECameraRecorderInterpMode> InItem);
@@ -42,6 +41,8 @@ private:
 	FText GetCurrentFrameText() const;
 	FText GetStatusText() const;
 	FText GetCameraNameText() const;
+	FSlateColor GetStatusColor() const;
+	FText GetRecordButtonText() const;
 
 	bool bIsRecording = false;
 	FCameraRecorderModule* Module = nullptr;
@@ -49,9 +50,8 @@ private:
 	TSharedPtr<SSpinBox<int32>> FrameStepSpinBox;
 	TSharedPtr<SSpinBox<int32>> StartFrameSpinBox;
 	TSharedPtr<SSpinBox<int32>> EndFrameSpinBox;
-	TSharedPtr<SSpinBox<int32>> WarmupFramesSpinBox;
 	TSharedPtr<SCheckBox> KeyframeOnLastFrameCheckBox;
-	TSharedPtr<SCheckBox> SnapRotationCorrectionCheckBox; // NEW
+	TSharedPtr<SCheckBox> SnapRotationCorrectionCheckBox;
 	
 	// Interpolation dropdown data
 	TArray<TSharedPtr<ECameraRecorderInterpMode>> InterpModeOptions;
