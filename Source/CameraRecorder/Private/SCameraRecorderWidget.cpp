@@ -16,7 +16,6 @@ void SCameraRecorderWidget::Construct(const FArguments& InArgs)
 {
 	Module = InArgs._Module;
 
-	// Reset module state when opening the window
 	if (Module)
 	{
 		Module->SetStartFrame(0);
@@ -28,7 +27,6 @@ void SCameraRecorderWidget::Construct(const FArguments& InArgs)
 
 	bIsRecording = false;
 
-	// Populate interpolation mode options
 	InterpModeOptions.Add(MakeShareable(new ECameraRecorderInterpMode(ECameraRecorderInterpMode::Auto)));
 	InterpModeOptions.Add(MakeShareable(new ECameraRecorderInterpMode(ECameraRecorderInterpMode::User)));
 	InterpModeOptions.Add(MakeShareable(new ECameraRecorderInterpMode(ECameraRecorderInterpMode::Break)));
@@ -48,7 +46,6 @@ void SCameraRecorderWidget::Construct(const FArguments& InArgs)
 				.Font(FCoreStyle::GetDefaultFontStyle("Bold", 14))
 		]
 
-		// Start Frame Input
 		+ SVerticalBox::Slot()
 		.AutoHeight()
 		.Padding(8.f)
@@ -76,7 +73,6 @@ void SCameraRecorderWidget::Construct(const FArguments& InArgs)
 			]
 		]
 
-		// End Frame Input
 		+ SVerticalBox::Slot()
 		.AutoHeight()
 		.Padding(8.f)
@@ -104,7 +100,6 @@ void SCameraRecorderWidget::Construct(const FArguments& InArgs)
 			]
 		]
 
-		// Frame Step Input
 		+ SVerticalBox::Slot()
 		.AutoHeight()
 		.Padding(8.f)
@@ -132,7 +127,6 @@ void SCameraRecorderWidget::Construct(const FArguments& InArgs)
 			]
 		]
 
-		// Interpolation Mode Dropdown
 		+ SVerticalBox::Slot()
 		.AutoHeight()
 		.Padding(8.f)
@@ -165,7 +159,6 @@ void SCameraRecorderWidget::Construct(const FArguments& InArgs)
 			]
 		]
 
-		// Keyframe on Last Frame Checkbox
 		+ SVerticalBox::Slot()
 		.AutoHeight()
 		.Padding(8.f)
@@ -193,7 +186,6 @@ void SCameraRecorderWidget::Construct(const FArguments& InArgs)
 			]
 		]
 
-		// Rotation Snap Correction Checkbox
 		+ SVerticalBox::Slot()
 		.AutoHeight()
 		.Padding(8.f)
@@ -221,7 +213,6 @@ void SCameraRecorderWidget::Construct(const FArguments& InArgs)
 			]
 		]
 
-		// Status Display
 		+ SVerticalBox::Slot()
 		.AutoHeight()
 		.Padding(8.f)
@@ -229,10 +220,9 @@ void SCameraRecorderWidget::Construct(const FArguments& InArgs)
 			SNew(STextBlock)
 				.Text(this, &SCameraRecorderWidget::GetStatusText)
 				.Font(FCoreStyle::GetDefaultFontStyle("Bold", 10))
-				.ColorAndOpacity(this, &SCameraRecorderWidget::GetStatusColor)  // CHANGED: Use attribute instead of lambda
+				.ColorAndOpacity(this, &SCameraRecorderWidget::GetStatusColor)
 		]
 
-		// Current Frame Display
 		+ SVerticalBox::Slot()
 		.AutoHeight()
 		.Padding(8.f)
@@ -259,7 +249,6 @@ void SCameraRecorderWidget::Construct(const FArguments& InArgs)
 			]
 		]
 
-		// Camera Display
 		+ SVerticalBox::Slot()
 		.AutoHeight()
 		.Padding(8.f)
@@ -286,7 +275,6 @@ void SCameraRecorderWidget::Construct(const FArguments& InArgs)
 			]
 		]
 
-		// Record Button
 		+ SVerticalBox::Slot()
 		.AutoHeight()
 		.Padding(8.f)
@@ -297,7 +285,7 @@ void SCameraRecorderWidget::Construct(const FArguments& InArgs)
 				SNew(SButton)
 					.HAlign(HAlign_Center)
 					.VAlign(VAlign_Center)
-					.Text(this, &SCameraRecorderWidget::GetRecordButtonText)  // CHANGED: Use attribute instead of lambda
+					.Text(this, &SCameraRecorderWidget::GetRecordButtonText)
 					.OnClicked(this, &SCameraRecorderWidget::OnRecordButtonClicked)
 			]
 		]
@@ -354,12 +342,10 @@ FText SCameraRecorderWidget::GetStatusText() const
 		return LOCTEXT("StatusIdle", "Status: Idle");
 	}
 
-	// Check for waiting for viewport click
 	if (Module->IsWaitingForClick())
 	{
 		return LOCTEXT("StatusWaitingForClick", "Status: Click viewport to start countdown...");
 	}
-	// Check for countdown state
 	else if (Module->IsInCountdown())
 	{
 		return FText::Format(
@@ -381,8 +367,7 @@ void SCameraRecorderWidget::OnKeyframeOnLastFrameChanged(ECheckBoxState NewState
 {
 	if (Module)
 	{
-		bool bChecked = (NewState == ECheckBoxState::Checked);
-		Module->SetKeyframeOnLastFrame(bChecked);
+		Module->SetKeyframeOnLastFrame(NewState == ECheckBoxState::Checked);
 	}
 }
 
@@ -414,7 +399,6 @@ FReply SCameraRecorderWidget::OnRecordButtonClicked()
 {
 	bIsRecording = !bIsRecording;
 
-	// Notify the module
 	if (Module)
 	{
 		Module->SetRecording(bIsRecording);

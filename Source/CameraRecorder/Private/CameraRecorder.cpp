@@ -46,13 +46,11 @@ void FCameraRecorderModule::StartupModule()
 		.SetDisplayName(LOCTEXT("FCameraRecorderTabTitle", "FlyCam Recorder"))
 		.SetMenuType(ETabSpawnerMenuType::Hidden);
 
-	// Register tick delegate
 	TickDelegateHandle = FTSTicker::GetCoreTicker().AddTicker(FTickerDelegate::CreateRaw(this, &FCameraRecorderModule::HandleTicker));
 }
 
 void FCameraRecorderModule::ShutdownModule()
 {
-	// Stop any active recording
 	if (bIsRecording)
 	{
 		bIsRecording = false;
@@ -60,7 +58,6 @@ void FCameraRecorderModule::ShutdownModule()
 		bWaitingForViewportClick = false;
 	}
 	
-	// Unregister tick delegate
 	if (TickDelegateHandle.IsValid())
 	{
 		FTSTicker::GetCoreTicker().RemoveTicker(TickDelegateHandle);
@@ -75,7 +72,6 @@ void FCameraRecorderModule::ShutdownModule()
 
 	FGlobalTabmanager::Get()->UnregisterNomadTabSpawner(CameraRecorderTabName);
 	
-	// Clear all weak pointers
 	CameraRecorderWidget.Reset();
 	CurrentLevelSequence.Reset();
 	RecordingCamera.Reset();
@@ -149,19 +145,15 @@ void FCameraRecorderModule::UpdateCountdown(float DeltaTime)
 	CountdownTimer -= DeltaTime;
 	int32 NewSecondsRemaining = FMath::CeilToInt(CountdownTimer);
 	
-	// Update the display if seconds changed
 	if (NewSecondsRemaining != CountdownSecondsRemaining)
 	{
 		CountdownSecondsRemaining = FMath::Max(0, NewSecondsRemaining);
 	}
 	
-	// Countdown finished!
 	if (CountdownTimer <= 0.0f)
 	{
 		bIsInCountdown = false;
 		CountdownSecondsRemaining = 0;
-		
-		// NOW start the sequencer playback and actual recording
 		StartSequencerPlayback();
 	}
 }
@@ -175,12 +167,12 @@ void FCameraRecorderModule::StartSequencerPlayback()
 		return;
 	}
 
-	// Get the movie scene to extend playback range if needed
 	if (CurrentLevelSequence.IsValid())
 	{
 		UMovieScene* MovieScene = CurrentLevelSequence->GetMovieScene();
 		if (MovieScene)
 		{
+			// Sequencer's playback range is exclusive at the end, so we use EndFrame + 1
 			int32 TotalEndFrame = EndFrame + 1;
 			
 			FFrameRate DisplayRate = MovieScene->GetDisplayRate();
@@ -205,6 +197,7 @@ void FCameraRecorderModule::StartSequencerPlayback()
 			
 			bool bRangeChanged = false;
 			
+			// Only extend the playback range if necessary (never shrink it)
 			if (NeededStartInTicks < FinalStartFrame)
 			{
 				FinalStartFrame = NeededStartInTicks;
@@ -223,13 +216,13 @@ void FCameraRecorderModule::StartSequencerPlayback()
 				MovieScene->SetPlaybackRange(NewRange);
 			}
 			
-			// Set the view range to see the entire recording
+			// Zoom the sequencer view to show the entire recording range
 			double ViewStart = FFrameRate::TransformTime(FFrameTime(StartFrame), DisplayRate, TickResolution).AsDecimal() / TickResolution.AsDecimal();
 			double ViewEnd = FFrameRate::TransformTime(FFrameTime(EndFrame), DisplayRate, TickResolution).AsDecimal() / TickResolution.AsDecimal();
 			
 			Sequencer->SetViewRange(TRange<double>(ViewStart, ViewEnd), EViewRangeInterpolation::Immediate);
 			
-			// Just start playback - playhead is already at StartFrame from SetRecording()
+			// Playhead is already at StartFrame from SetRecording(), just start playback
 			Sequencer->SetPlaybackStatus(EMovieScenePlayerStatus::Playing);
 		}
 	}
@@ -248,14 +241,12 @@ void FCameraRecorderModule::ClearExistingKeyframes(const FGuid& CameraBinding)
 		return;
 	}
 
-	// Find the transform track for this camera
 	UMovieScene3DTransformTrack* TransformTrack = MovieScene->FindTrack<UMovieScene3DTransformTrack>(CameraBinding);
 	if (!TransformTrack)
 	{
 		return;
 	}
 
-	// Get the transform section
 	UMovieScene3DTransformSection* TransformSection = Cast<UMovieScene3DTransformSection>(
 		TransformTrack->FindSection(0));
 	
@@ -264,7 +255,6 @@ void FCameraRecorderModule::ClearExistingKeyframes(const FGuid& CameraBinding)
 		return;
 	}
 
-	// Convert frame range to tick resolution
 	FFrameRate DisplayRate = MovieScene->GetDisplayRate();
 	FFrameRate TickResolution = MovieScene->GetTickResolution();
 	
@@ -280,7 +270,6 @@ void FCameraRecorderModule::ClearExistingKeyframes(const FGuid& CameraBinding)
 		TickResolution
 	).CeilToFrame();
 
-	// Get all the channels
 	TArrayView<FMovieSceneDoubleChannel*> Channels = TransformSection->GetChannelProxy().GetChannels<FMovieSceneDoubleChannel>();
 	
 	if (Channels.Num() < 6)
@@ -290,14 +279,14 @@ void FCameraRecorderModule::ClearExistingKeyframes(const FGuid& CameraBinding)
 
 	int32 TotalKeysRemoved = 0;
 
-	// Clear keyframes in the recording range for all channels
+	// Remove all keyframes within the recording range for Location (XYZ) and Rotation (RPY)
 	for (FMovieSceneDoubleChannel* Channel : Channels)
 	{
 		if (Channel)
 		{
 			TArray<FKeyHandle> KeyHandlesToRemove;
 			
-			// Copy the times array to avoid invalidation issues
+			// Copy times to avoid invalidation during iteration
 			TArray<FFrameNumber> KeyTimesCopy;
 			TArrayView<const FFrameNumber> KeyTimes = Channel->GetTimes();
 			KeyTimesCopy.Reserve(KeyTimes.Num());
@@ -306,7 +295,6 @@ void FCameraRecorderModule::ClearExistingKeyframes(const FGuid& CameraBinding)
 				KeyTimesCopy.Add(Time);
 			}
 			
-			// Find all key handles within the recording range
 			for (int32 KeyIndex = 0; KeyIndex < KeyTimesCopy.Num(); ++KeyIndex)
 			{
 				const FFrameNumber& KeyTime = KeyTimesCopy[KeyIndex];
@@ -320,7 +308,6 @@ void FCameraRecorderModule::ClearExistingKeyframes(const FGuid& CameraBinding)
 				}
 			}
 			
-			// Remove the keys using their handles
 			if (KeyHandlesToRemove.Num() > 0)
 			{
 				Channel->DeleteKeys(KeyHandlesToRemove);
@@ -331,7 +318,6 @@ void FCameraRecorderModule::ClearExistingKeyframes(const FGuid& CameraBinding)
 
 	if (TotalKeysRemoved > 0)
 	{
-		// Notify sequencer that data has changed
 		if (TSharedPtr<ISequencer> Sequencer = ActiveSequencer.Pin())
 		{
 			Sequencer->NotifyMovieSceneDataChanged(EMovieSceneDataChangeType::TrackValueChanged);
@@ -345,7 +331,7 @@ void FCameraRecorderModule::SetRecording(bool bInIsRecording)
 	
 	if (bInIsRecording)
 	{
-		// Reset tracking variables (click-to-start is now the only mode)
+		// Initialize recording state
 		bWaitingForViewportClick = true;
 		bIsInCountdown = false;
 		CountdownTimer = 0.0f;
@@ -356,7 +342,6 @@ void FCameraRecorderModule::SetRecording(bool bInIsRecording)
 		
 		ULevelSequence* NewSequence = GetOrCreateLevelSequence();
 		
-		// If the sequence changed, invalidate the cached binding
 		if (CurrentLevelSequence.Get() != NewSequence)
 		{
 			CachedCameraBinding.Invalidate();
@@ -407,13 +392,11 @@ void FCameraRecorderModule::SetRecording(bool bInIsRecording)
 			return;
 		}
 
-		// Store the camera reference
 		RecordingCamera = CineCam;
 
-		// STEP 1: Capture the camera's transform FIRST, before doing anything that causes evaluation
+		// Capture transform before any operations that trigger Sequencer evaluation
 		CapturedCameraTransform = CineCam->GetActorTransform();
 
-		// Get or create the camera binding
 		FGuid CameraBinding = GetOrCreateCameraBinding(CineCam);
 		if (!CameraBinding.IsValid())
 		{
@@ -423,10 +406,9 @@ void FCameraRecorderModule::SetRecording(bool bInIsRecording)
 			return;
 		}
 
-		// Clear existing keyframes in the recording range
 		ClearExistingKeyframes(CameraBinding);
 		
-		// STEP 2: Disable the camera's transform track (this will cause a snap)
+		// Disable transform track to prevent Sequencer from controlling the camera during recording
 		UMovieScene* MovieScene = CurrentLevelSequence->GetMovieScene();
 		if (MovieScene)
 		{
@@ -446,17 +428,15 @@ void FCameraRecorderModule::SetRecording(bool bInIsRecording)
 			}
 		}
 		
-		// STEP 3: Move playhead to start frame and setup sequencer
+		// Move playhead to StartFrame
 		TSharedPtr<ISequencer> Sequencer = GetActiveSequencer();
 		if (Sequencer.IsValid() && MovieScene)
 		{
 			ActiveSequencer = Sequencer;
 			
-			// Get frame rates
 			FFrameRate DisplayRate = MovieScene->GetDisplayRate();
 			FFrameRate TickResolution = MovieScene->GetTickResolution();
 			
-			// Set global time to StartFrame
 			FFrameNumber StartFrameInTicks = FFrameRate::TransformTime(
 				FFrameTime(StartFrame),
 				DisplayRate,
@@ -467,7 +447,7 @@ void FCameraRecorderModule::SetRecording(bool bInIsRecording)
 			Sequencer->ForceEvaluate();
 		}
 		
-		// STEP 4: Restore the captured transform (fixes any snap from disabling track or moving playhead)
+		// Restore captured transform to prevent snapping from track disable or playhead movement
 		CineCam->SetActorTransform(CapturedCameraTransform.GetValue());
 		
 	}
@@ -483,13 +463,12 @@ void FCameraRecorderModule::StopRecording()
 	bIsInCountdown = false;
 	bWaitingForViewportClick = false;
 	
-	// Stop sequencer playback
 	if (TSharedPtr<ISequencer> Sequencer = ActiveSequencer.Pin())
 	{
 		Sequencer->SetPlaybackStatus(EMovieScenePlayerStatus::Stopped);
 	}
 	
-	// Re-enable the camera's transform track AND sections before writing keyframes
+	// Re-enable transform track and write recorded keyframes
 	if (CurrentLevelSequence.IsValid() && CachedCameraBinding.IsValid())
 	{
 		UMovieScene* MovieScene = CurrentLevelSequence->GetMovieScene();
@@ -511,7 +490,6 @@ void FCameraRecorderModule::StopRecording()
 			}
 		}
 		
-		// Write all the stored frames as keyframes
 		if (RecordedFrames.Num() > 0)
 		{
 			ApplyRotationSnapCorrection();
@@ -525,7 +503,6 @@ void FCameraRecorderModule::StopRecording()
 		}
 	}
 
-	// Notify widget to update button state
 	if (TSharedPtr<SCameraRecorderWidget> Widget = CameraRecorderWidget.Pin())
 	{
 		Widget->OnRecordingStopped();
@@ -561,7 +538,7 @@ FGuid FCameraRecorderModule::GetOrCreateCameraBinding(ACineCameraActor* CineCam)
 		return FGuid();
 	}
 
-	// Return cached binding if valid and verify it still points to this camera
+	// Return cached binding if it's still valid for this camera
 	if (CachedCameraBinding.IsValid())
 	{
 		UMovieScene* MovieScene = CurrentLevelSequence->GetMovieScene();
@@ -588,7 +565,7 @@ FGuid FCameraRecorderModule::GetOrCreateCameraBinding(ACineCameraActor* CineCam)
 		return FGuid();
 	}
 
-	// Search for existing possessables by comparing bound objects
+	// Search for existing possessable bindings
 	for (int32 i = 0; i < MovieScene->GetPossessableCount(); ++i)
 	{
 		const FMovieScenePossessable& Possessable = MovieScene->GetPossessable(i);
@@ -606,7 +583,7 @@ FGuid FCameraRecorderModule::GetOrCreateCameraBinding(ACineCameraActor* CineCam)
 		}
 	}
 	
-	// Check if the camera is already bound as a spawnable
+	// Check spawnable bindings
 	for (int32 i = 0; i < MovieScene->GetSpawnableCount(); ++i)
 	{
 		const FMovieSceneSpawnable& Spawnable = MovieScene->GetSpawnable(i);
@@ -624,7 +601,7 @@ FGuid FCameraRecorderModule::GetOrCreateCameraBinding(ACineCameraActor* CineCam)
 		}
 	}
 	
-	// Try to find by name match
+	// Try finding by name match
 	FString CameraName = CineCam->GetActorLabel();
 	for (int32 i = 0; i < MovieScene->GetPossessableCount(); ++i)
 	{
@@ -640,7 +617,7 @@ FGuid FCameraRecorderModule::GetOrCreateCameraBinding(ACineCameraActor* CineCam)
 		}
 	}
 	
-	// Camera not in sequence yet, add it as a new possessable
+	// Camera not in sequence, add it as a new possessable
 	CachedCameraBinding = MovieScene->AddPossessable(CineCam->GetActorLabel(), CineCam->GetClass());
 	CurrentLevelSequence->BindPossessableObject(CachedCameraBinding, *CineCam, CineCam->GetWorld());
 	
@@ -649,7 +626,7 @@ FGuid FCameraRecorderModule::GetOrCreateCameraBinding(ACineCameraActor* CineCam)
 
 void FCameraRecorderModule::RecordCameraKeyframe(ACineCameraActor* CineCam, int32 FrameNumber)
 {
-	// This function is kept for compatibility but not used anymore
+	// Deprecated - use RecordCameraKeyframeWithRotation instead
 }
 
 void FCameraRecorderModule::RecordCameraKeyframeWithRotation(const FVector& Location, const FRotator& Rotation, int32 FrameNumber)
@@ -671,7 +648,6 @@ void FCameraRecorderModule::RecordCameraKeyframeWithRotation(const FVector& Loca
 		return;
 	}
 
-	// Get or create transform track
 	UMovieScene3DTransformTrack* TransformTrack = MovieScene->FindTrack<UMovieScene3DTransformTrack>(CameraBinding);
 	
 	if (!TransformTrack)
@@ -684,7 +660,6 @@ void FCameraRecorderModule::RecordCameraKeyframeWithRotation(const FVector& Loca
 		return;
 	}
 
-	// Get or create section
 	bool bSectionAdded = false;
 	UMovieScene3DTransformSection* TransformSection = Cast<UMovieScene3DTransformSection>(
 		TransformTrack->FindOrAddSection(0, bSectionAdded));
@@ -699,13 +674,12 @@ void FCameraRecorderModule::RecordCameraKeyframeWithRotation(const FVector& Loca
 		TransformSection->SetRange(TRange<FFrameNumber>::All());
 	}
 
-	// Convert frame to frame number
 	FFrameRate FrameRate = MovieScene->GetTickResolution();
 	FFrameNumber FrameNum = FFrameRate::TransformTime(FFrameTime(FrameNumber), MovieScene->GetDisplayRate(), FrameRate).FloorToFrame();
 
-	// Get all channels
 	TArrayView<FMovieSceneDoubleChannel*> Channels = TransformSection->GetChannelProxy().GetChannels<FMovieSceneDoubleChannel>();
 	
+	// Channels: [0-2] = Location XYZ, [3-5] = Rotation RPY
 	if (Channels.Num() >= 6)
 	{
 		switch (InterpMode)
@@ -785,6 +759,7 @@ void FCameraRecorderModule::ApplyRotationSnapCorrection()
 
 	FRotator PrevRotation = RecordedFrames[0].Rotation;
 
+	// Detect and fix rotation wrapping (e.g., 179° ? -179° should be 179° ? 181°)
 	for (int32 i = 1; i < RecordedFrames.Num(); ++i)
 	{
 		FRotator& CurrentRotation = RecordedFrames[i].Rotation;
@@ -794,9 +769,9 @@ void FCameraRecorderModule::ApplyRotationSnapCorrection()
 		double DeltaYaw = CurrentRotation.Yaw - PrevRotation.Yaw;
 		double DeltaRoll = CurrentRotation.Roll - PrevRotation.Roll;
 
-		// Detect snaps
 		bool bCorrected = false;
 		
+		// Detect 180° threshold crossings and apply offsets
 		if (DeltaPitch > 180.0)
 		{
 			PitchOffset -= 360.0;
@@ -835,7 +810,6 @@ void FCameraRecorderModule::ApplyRotationSnapCorrection()
 			CorrectionsApplied++;
 		}
 
-		// Apply accumulated offsets
 		CurrentRotation.Pitch += PitchOffset;
 		CurrentRotation.Yaw += YawOffset;
 		CurrentRotation.Roll += RollOffset;
@@ -853,17 +827,15 @@ bool FCameraRecorderModule::HandleTicker(float DeltaTime)
 {
 	if (bIsRecording)
 	{
-		// Handle countdown state
 		if (bIsInCountdown)
 		{
 			UpdateCountdown(DeltaTime);
 			return true;
 		}
 		
-		// Handle waiting for viewport click
+		// Wait for user to click viewport to start countdown
 		if (bWaitingForViewportClick)
 		{
-			// Check if user has clicked in the viewport (mouse button pressed)
 			if (FSlateApplication::IsInitialized())
 			{
 				if (FSlateApplication::Get().GetPressedMouseButtons().Num() > 0)
@@ -874,7 +846,6 @@ bool FCameraRecorderModule::HandleTicker(float DeltaTime)
 			return true;
 		}
 		
-		// Normal recording tick
 		OnTick();
 	}
 	return true;
@@ -893,14 +864,13 @@ void FCameraRecorderModule::OnTick()
 		return;
 	}
 
-	// ADDED: Check if sequencer has stopped playing (reached the end)
+	// Stop recording if Sequencer has stopped playing (reached end of playback range)
 	if (Sequencer->GetPlaybackStatus() != EMovieScenePlayerStatus::Playing)
 	{
 		SetRecording(false);
 		return;
 	}
 
-	// Get current sequencer time
 	FQualifiedFrameTime CurrentTime = Sequencer->GetGlobalTime();
 	UMovieScene* MovieScene = CurrentLevelSequence.IsValid() ? CurrentLevelSequence->GetMovieScene() : nullptr;
 	
@@ -909,17 +879,16 @@ void FCameraRecorderModule::OnTick()
 		return;
 	}
 
-	// Convert from tick resolution to display frames
 	FFrameRate DisplayRate = MovieScene->GetDisplayRate();
 	FFrameRate TickResolution = MovieScene->GetTickResolution();
 	
 	FFrameTime DisplayFrameTime = FFrameRate::TransformTime(CurrentTime.Time, TickResolution, DisplayRate);
 	CurrentFrame = DisplayFrameTime.FloorToFrame().Value;
 
-	// Check if we've reached the end (this handles manual stop or if user changes end frame during recording)
+	// Stop if we've gone past the end frame
 	if (CurrentFrame > EndFrame)
 	{
-		// Add final keyframe if enabled
+		// Add final frame if enabled
 		if (bKeyframeOnLastFrame && LastRecordedFrame != EndFrame)
 		{
 			if (!GEditor)
@@ -944,7 +913,7 @@ void FCameraRecorderModule::OnTick()
 		return;
 	}
 
-	// Check if we should record this frame
+	// Record this frame if it matches our frame step criteria
 	bool bShouldRecord = (CurrentFrame >= StartFrame) && 
 	                     (CurrentFrame <= EndFrame) &&
 	                     ((CurrentFrame - StartFrame) % FrameStep == 0) &&
