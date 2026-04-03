@@ -21,7 +21,7 @@ void SCameraRecorderWidget::Construct(const FArguments& InArgs)
 	{
 		Module->SetStartFrame(0);
 		Module->SetEndFrame(120);
-		Module->SetFrameStep(10);
+		Module->SetFrameStep(20);
 		Module->SetInterpMode(ECameraRecorderInterpMode::Auto);
 		Module->SetKeyframeOnLastFrame(true);
 	}
@@ -127,7 +127,7 @@ void SCameraRecorderWidget::Construct(const FArguments& InArgs)
 				SAssignNew(FrameStepSpinBox, SSpinBox<int32>)
 					.MinValue(1)
 					.MaxValue(100)
-					.Value(10)
+					.Value(20)
 					.OnValueChanged(this, &SCameraRecorderWidget::OnFrameStepChanged)
 			]
 		]
