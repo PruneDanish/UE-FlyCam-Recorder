@@ -141,9 +141,9 @@ Copyright Epic Games, Inc. All Rights Reserved.
 
 ## Support
 
-For bugs, feature requests, orquestions:
+For bugs, feature requests, or questions:
 - Open an issue on [GitHub](https://github.com/PruneDanish/UE-Camera-Recorder/issues)
-- Contact:[Your Contact Info]
+- Contact: danieljpauker@gmail.com
 
 ## Changelog
 

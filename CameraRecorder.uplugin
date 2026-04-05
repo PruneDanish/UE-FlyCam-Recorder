@@ -4,12 +4,13 @@
 	"VersionName": "1.0",
 	"FriendlyName": "FlyCam Recorder",
 	"Description": "Record piloted camera movements directly to Sequencer keyframes.",
-	"Category": "Other",
+	"Category": "Animation",
 	"CreatedBy": "Daniel Pauker",
 	"CreatedByURL": "",
-	"DocsURL": "",
+	"DocsURL": "https://github.com/PruneDanish/UE-FlyCam-Recorder/blob/master/README.md",
 	"MarketplaceURL": "",
-	"SupportURL": "",
+	"SupportURL": "https://github.com/PruneDanish/UE-FlyCam-Recorder/issues",
+	"FabURL": "com.epicgames.launcher://ue/Fab/product/49768755-d105-4bdf-ab1b-db53796711c7",
 	"CanContainContent": false,
 	"IsBetaVersion": false,
 	"IsExperimentalVersion": false,
@@ -18,7 +19,12 @@
 		{
 			"Name": "CameraRecorder",
 			"Type": "Editor",
-			"LoadingPhase": "Default"
+			"LoadingPhase": "Default",
+			"PlatformAllowList": [
+				"Win64",
+				"Mac",
+				"Linux"
+			]
 		}
 	]
 }
